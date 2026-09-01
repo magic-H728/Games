@@ -1,7 +1,7 @@
 {
     "capture_score": 10,
     "survival_interval_seconds": 180,
-    "survival_interval_score": 10,
+    "survival_interval_score": 5,
     "max_revive_count": 99,
     "revive_protect_seconds": 120,
     "cat_ratio": 0.1,

@@ -159,58 +159,42 @@ async def complete_revive(
 
     reward_message = ""
     if mini_game and mini_game.is_scored and score > 0:
-        # Check if this player is in top 3
         from app.models.score import ScoreTransaction, ScoreType
 
-        # Get current top 3 (excluding this attempt)
-        top_attempts_result = await db.execute(
+        # 获取所有已通过的尝试（包括当前这次）
+        all_attempts_result = await db.execute(
             select(MiniGameAttempt)
             .where(
                 MiniGameAttempt.mini_game_id == mini_game.id,
-                MiniGameAttempt.passed == True,
-                MiniGameAttempt.rewarded == True
+                MiniGameAttempt.passed == True
             )
             .order_by(MiniGameAttempt.score.desc(), MiniGameAttempt.completed_at.asc())
-            .limit(3)
         )
-        top_attempts = top_attempts_result.scalars().all()
+        all_attempts = all_attempts_result.scalars().all()
 
-        # Determine if this score qualifies for a reward
+        # 找到当前玩家的排名
+        current_rank = None
+        for i, att in enumerate(all_attempts, 1):
+            if att.id == attempt.id:
+                current_rank = i
+                break
+
+        # 如果排名在前3名，给奖励
         rewards = [mini_game.reward_first, mini_game.reward_second, mini_game.reward_third]
-        rank = None
-        reward = 0
-
-        if len(top_attempts) < 3:
-            # Less than 3 rewarded, this player qualifies
-            rank = len(top_attempts) + 1
-            reward = rewards[rank - 1] if rank <= len(rewards) else 0
-        elif score > top_attempts[-1].score or (score == top_attempts[-1].score):
-            # This score beats or ties the 3rd place
-            # Find the exact rank
-            for i, ta in enumerate(top_attempts):
-                if score > ta.score:
-                    rank = i + 1
-                    reward = rewards[rank - 1] if rank <= len(rewards) else 0
-                    break
-                elif score == ta.score:
-                    # Same score, earlier time wins (but this player just completed)
-                    rank = i + 1
-                    reward = rewards[rank - 1] if rank <= len(rewards) else 0
-                    break
-
-        if rank and reward > 0:
+        if current_rank and current_rank <= 3:
+            reward = rewards[current_rank - 1]
             attempt.rewarded = True
             score_tx = ScoreTransaction(
                 game_id=game.id,
                 game_player_id=mouse.id,
                 score=reward,
                 type=ScoreType.MINIGAME,
-                reason=f"小游戏 '{mini_game.name}' 第{rank}名奖励",
+                reason=f"小游戏 '{mini_game.name}' 第{current_rank}名奖励",
                 related_attempt_id=attempt.id
             )
             db.add(score_tx)
-            medal = ["🥇", "🥈", "🥉"][rank - 1] if rank <= 3 else ""
-            reward_message = f" {medal}第{rank}名，获得 {reward} 积分奖励！"
+            medal = ["🥇", "🥈", "🥉"][current_rank - 1]
+            reward_message = f" {medal}第{current_rank}名，获得 {reward} 积分奖励！"
 
     return ReviveResponse(
         success=True,
