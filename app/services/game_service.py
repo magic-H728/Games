@@ -32,6 +32,8 @@ async def get_or_create_current_game(db: AsyncSession) -> Game:
 
 async def create_game(db: AsyncSession, req: GameCreateRequest) -> Game:
     """Create a new game. Only one active game allowed."""
+    from app.core.config import load_game_config
+
     # Check for existing active game
     result = await db.execute(
         select(Game).where(Game.status != GameStatus.FINISHED)
@@ -40,19 +42,22 @@ async def create_game(db: AsyncSession, req: GameCreateRequest) -> Game:
     if existing:
         raise HTTPException(status_code=400, detail=f"游戏 '{existing.name}' 仍在进行中，请先结束它")
 
+    # 从配置文件读取默认值
+    config = load_game_config()
+
     game = Game(
         name=req.name,
-        cat_ratio=req.cat_ratio,
+        cat_ratio=config.get("cat_ratio", 0.1),
         cat_count=req.cat_count,
         cat_team_count=req.cat_team_count,
         mouse_team_count=req.mouse_team_count,
-        capture_score=req.capture_score,
+        capture_score=config.get("capture_score", 10),
         allow_repeat_capture=req.allow_repeat_capture,
-        survival_interval_seconds=req.survival_interval_seconds,
-        survival_interval_score=req.survival_interval_score,
+        survival_interval_seconds=config.get("survival_interval_seconds", 300),
+        survival_interval_score=config.get("survival_interval_score", 5),
         allow_revive=req.allow_revive,
-        max_revive_count=req.max_revive_count,
-        revive_protect_seconds=req.revive_protect_seconds,
+        max_revive_count=config.get("max_revive_count", 3),
+        revive_protect_seconds=config.get("revive_protect_seconds", 120),
     )
     db.add(game)
     await db.flush()
