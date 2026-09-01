@@ -131,8 +131,14 @@
                         sessionStartTime = null;
                     } else if (data.status === 'RUNNING' && !sessionStartTime) {
                         // 首次加载或刷新，同步时间
-                        syncTime();
-                        return; // syncTime会调用renderGameStatus
+                        await syncTime();
+                        renderGameStatus(data);
+                        return;
+                    } else if (data.status === 'PAUSED' && !sessionStartTime) {
+                        // 暂停状态，同步时间
+                        await syncTime();
+                        renderGameStatus(data);
+                        return;
                     }
                 }
 
@@ -365,8 +371,13 @@
             window.location.href = '/player/login';
         }
 
-        // 初始化 - 加载一次数据，获取时间戳
-        loadGameStatus();
+        // 初始化 - 加载数据并同步时间
+        loadGameStatus().then(() => {
+            // 如果游戏进行中，立即同步时间
+            if (gameStatus === 'RUNNING' || gameStatus === 'PAUSED') {
+                syncTime();
+            }
+        });
         loadPlayerInfo();
 
         // 每秒更新本地时间显示

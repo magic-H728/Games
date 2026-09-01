@@ -174,12 +174,36 @@
             if (!qrReader) return;
 
             try {
-                html5QrcodeScanner = new Html5QrcodeScanner(
-                    "qr-reader",
-                    { fps: 10, qrbox: { width: 200, height: 200 } },
-                    false
-                );
+                const config = {
+                    fps: 10,
+                    qrbox: { width: 250, height: 250 },
+                    aspectRatio: 1.0,
+                    showTorchButtonIfSupported: false,
+                    showZoomSliderIfSupported: false,
+                    defaultZoomValueIfSupported: 1,
+                    videoConstraints: {
+                        facingMode: "environment",
+                        width: { min: 640, ideal: 1280, max: 1920 },
+                        height: { min: 480, ideal: 720, max: 1080 }
+                    }
+                };
+
+                html5QrcodeScanner = new Html5QrcodeScanner("qr-reader", config, false);
                 html5QrcodeScanner.render(onGameScanSuccess, () => {});
+
+                setTimeout(() => {
+                    const permBtn = document.querySelector('#qr-reader button');
+                    if (permBtn && permBtn.textContent.includes('Request')) {
+                        permBtn.textContent = '📷 启动摄像头';
+                        permBtn.style.padding = '12px 24px';
+                        permBtn.style.fontSize = '16px';
+                    }
+                    const select = document.querySelector('#qr-reader select');
+                    if (select && select.options.length <= 1) {
+                        select.parentElement.style.display = 'none';
+                    }
+                }, 100);
+
                 isScanning = true;
             } catch (err) {
                 console.error('Camera error:', err);
