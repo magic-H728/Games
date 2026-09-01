@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>队友查询 - 躲猫猫大挑战</title>
+    <link rel="stylesheet" href="/static/css/common.css">
+    <style>
+        .scan-mode-toggle {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+        .scan-mode-btn {
+            flex: 1;
+            padding: 10px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            background: white;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            text-align: center;
+            transition: all 0.2s;
+        }
+        .scan-mode-btn.active {
+            border-color: #667eea;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+        }
+        #qr-reader {
+            width: 100%;
+            max-width: 350px;
+            margin: 0 auto;
+        }
+        #qr-reader video {
+            width: 100%;
+            border-radius: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="page-header">
+            <h1>👥 队友查询</h1>
+        </div>
+
+        <div class="card">
+            <div class="card-title">查找玩家</div>
+            <div class="scan-mode-toggle">
+                <button class="scan-mode-btn active" onclick="switchMode('camera')">📷 摄像头扫码</button>
+                <button class="scan-mode-btn" onclick="switchMode('manual')">⌨️ 手动输入</button>
+            </div>
+
+            <div id="camera-mode">
+                <div id="qr-reader" style="margin-bottom: 12px;"></div>
+                <button class="btn btn-sm btn-danger" id="stop-camera-btn" onclick="stopCamera()" style="display: none; width: 100%;">停止扫码</button>
+            </div>
+
+            <div id="manual-mode" style="display: none;">
+                <div style="display: flex; gap: 8px;">
+                    <input type="text" id="search-input" placeholder="输入姓名/学号/身份码" style="flex: 1;">
+                    <button class="btn btn-sm btn-primary" onclick="searchPlayer()">查询</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="result"></div>
+
+        <div class="card">
+            <a href="/staff" class="btn btn-sm" style="background: #f0f0f0; color: #666; display: block; text-align: center; text-decoration: none;">← 返回控制台</a>
+        </div>
+    </div>
+
+    <script src="/static/js/common.js"></script>
+    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+    <script>
+        if (!getToken() || getRole() !== 'STAFF') {
+            window.location.href = '/staff/login';
+        }
+
+        let html5QrcodeScanner = null;
+        let isScanning = false;
+
+        function switchMode(mode) {
+            document.querySelectorAll('.scan-mode-btn').forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+
+            document.getElementById('camera-mode').style.display = mode === 'camera' ? 'block' : 'none';
+            document.getElementById('manual-mode').style.display = mode === 'manual' ? 'block' : 'none';
+
+            if (mode === 'camera') {
+                startCamera();
+            } else {
+                stopCamera();
+            }
+        }
+
+        async function startCamera() {
+            if (isScanning) return;
+
+            const qrReader = document.getElementById('qr-reader');
+            if (!qrReader) return;
+
+            try {
+                html5QrcodeScanner = new Html5QrcodeScanner(
+                    "qr-reader",
+                    { fps: 10, qrbox: { width: 200, height: 200 } },
+                    false
+                );
+                html5QrcodeScanner.render(onScanSuccess, onScanError);
+                isScanning = true;
+                document.getElementById('stop-camera-btn').style.display = 'block';
+            } catch (err) {
+                console.error('Camera error:', err);
+                showToast('无法启动摄像头，请使用手动输入', 'warning');
+                switchMode('manual');
+            }
+        }
+
+        function stopCamera() {
+            if (html5QrcodeScanner) {
+                html5QrcodeScanner.clear();
+                html5QrcodeScanner = null;
+            }
+            isScanning = false;
+            const btn = document.getElementById('stop-camera-btn');
+            if (btn) btn.style.display = 'none';
+        }
+
+        function onScanSuccess(decodedText) {
+            stopCamera();
+            document.getElementById('search-input').value = decodedText;
+            searchPlayer(decodedText);
+        }
+
+        function onScanError() {}
+
+        document.getElementById('search-input')?.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') searchPlayer();
+        });
+
+        async function searchPlayer(qrToken) {
+            qrToken = qrToken || document.getElementById('search-input')?.value?.trim();
+            if (!qrToken) {
+                showToast('请输入或扫描身份码', 'warning');
+                return;
+            }
+
+            try {
+                const players = await apiGet(`/api/staff/players?search=${encodeURIComponent(qrToken)}`);
+                if (!players || players.length === 0) {
+                    document.getElementById('result').innerHTML =
+                        `<div class="card"><div style="text-align: center; color: #888; padding: 20px;">未找到玩家</div></div>`;
+                    return;
+                }
+
+                // Show first player's teammates
+                const player = players[0];
+                const data = await apiGet(`/api/staff/players/${player.id}/teammates`);
+                showTeamResult(data);
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        }
+
+        function showTeamResult(data) {
+            if (!data.team) {
+                document.getElementById('result').innerHTML = `
+                    <div class="card">
+                        <div style="text-align: center; padding: 20px; color: #888;">
+                            <p>${data.player} 尚未分配队伍</p>
+                        </div>
+                    </div>
+                `;
+                return;
+            }
+
+            let html = `
+                <div class="card">
+                    <div class="card-title">🏫 ${data.team}</div>
+                    <p style="font-size: 13px; color: #888; margin-bottom: 12px;">查询玩家: ${data.player}</p>
+            `;
+
+            data.teammates.forEach(t => {
+                const isSelf = t.is_self;
+                html += `
+                    <div class="list-item" style="${isSelf ? 'background: #f0f0f0; border-radius: 8px; padding: 12px;' : ''}">
+                        <div>
+                            <div style="font-weight: 600;">
+                                ${t.name} ${t.role === 'CAT' ? '🐱' : '🐭'}
+                                ${isSelf ? ' ← 查询对象' : ''}
+                            </div>
+                            <div style="font-size: 12px; color: #888;">${t.student_id}</div>
+                        </div>
+                        <div style="text-align: right;">
+                            ${getStatusBadge(t.status)}
+                            <div style="font-size: 13px; color: #667eea; font-weight: 600; margin-top: 2px;">${t.score}分</div>
+                        </div>
+                    </div>
+                `;
+            });
+
+            html += '</div>';
+            document.getElementById('result').innerHTML = html;
+        }
+
+        // Auto-start camera
+        startCamera();
+    </script>
+</body>
+</html>

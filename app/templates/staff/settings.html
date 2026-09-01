@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>个人设置 - 躲猫猫大挑战</title>
+    <link rel="stylesheet" href="/static/css/common.css">
+</head>
+<body>
+    <div class="container">
+        <div class="page-header">
+            <h1>⚙️ 个人设置</h1>
+        </div>
+
+        <div class="card">
+            <div class="card-title">修改密码</div>
+            <div class="form-group">
+                <label>原密码</label>
+                <input type="password" id="old-password" placeholder="请输入原密码">
+            </div>
+            <div class="form-group">
+                <label>新密码</label>
+                <input type="password" id="new-password" placeholder="请输入新密码">
+            </div>
+            <div class="form-group">
+                <label>确认新密码</label>
+                <input type="password" id="confirm-password" placeholder="请再次输入新密码">
+            </div>
+            <button class="btn btn-primary" onclick="changePassword()">修改密码</button>
+        </div>
+
+        <div class="card">
+            <div class="card-title">个人信息</div>
+            <div class="form-group">
+                <label>姓名</label>
+                <input type="text" id="staff-name" placeholder="请输入姓名" value="">
+            </div>
+            <div class="form-group">
+                <label>学号</label>
+                <input type="text" id="staff-student-id" placeholder="请输入学号" value="">
+            </div>
+            <div class="form-group">
+                <label>微信号</label>
+                <input type="text" id="staff-wechat" placeholder="请输入微信号（选填）" value="">
+            </div>
+            <button class="btn btn-primary" onclick="saveProfile()">保存信息</button>
+        </div>
+
+        <div class="card">
+            <a href="/staff" class="btn btn-sm" style="background: #f0f0f0; color: #666; display: block; text-align: center; text-decoration: none;">← 返回控制台</a>
+        </div>
+    </div>
+
+    <script src="/static/js/common.js"></script>
+    <script>
+        if (!getToken() || getRole() !== 'STAFF') {
+            window.location.href = '/staff/login';
+        }
+
+        // Load saved profile from localStorage
+        function loadProfile() {
+            const profile = JSON.parse(localStorage.getItem('staff_profile') || '{}');
+            document.getElementById('staff-name').value = profile.name || '';
+            document.getElementById('staff-student-id').value = profile.studentId || '';
+            document.getElementById('staff-wechat').value = profile.wechat || '';
+        }
+
+        async function changePassword() {
+            const oldPassword = document.getElementById('old-password').value;
+            const newPassword = document.getElementById('new-password').value;
+            const confirmPassword = document.getElementById('confirm-password').value;
+
+            if (!oldPassword || !newPassword || !confirmPassword) {
+                showToast('请填写所有密码字段', 'warning');
+                return;
+            }
+
+            if (newPassword !== confirmPassword) {
+                showToast('两次输入的新密码不一致', 'error');
+                return;
+            }
+
+            if (newPassword.length < 6) {
+                showToast('新密码至少6位', 'warning');
+                return;
+            }
+
+            // Save to localStorage (in real app, this would be an API call)
+            localStorage.setItem('staff_password', newPassword);
+            showToast('密码修改成功', 'success');
+
+            // Clear inputs
+            document.getElementById('old-password').value = '';
+            document.getElementById('new-password').value = '';
+            document.getElementById('confirm-password').value = '';
+        }
+
+        function saveProfile() {
+            const profile = {
+                name: document.getElementById('staff-name').value.trim(),
+                studentId: document.getElementById('staff-student-id').value.trim(),
+                wechat: document.getElementById('staff-wechat').value.trim()
+            };
+
+            localStorage.setItem('staff_profile', JSON.stringify(profile));
+            showToast('个人信息保存成功', 'success');
+        }
+
+        loadProfile();
+    </script>
+</body>
+</html>

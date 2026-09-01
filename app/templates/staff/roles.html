@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>身份分配 - 躲猫猫大挑战</title>
+    <link rel="stylesheet" href="/static/css/common.css">
+    <style>
+        .setting-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 0;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        .setting-row:last-child {
+            border-bottom: none;
+        }
+        .setting-label {
+            font-size: 14px;
+            color: #555;
+        }
+        .setting-input {
+            width: 80px;
+            text-align: center;
+            padding: 8px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+        }
+        .preview-box {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            border-radius: 12px;
+            padding: 16px;
+            text-align: center;
+            margin-top: 16px;
+        }
+        .preview-number {
+            font-size: 36px;
+            font-weight: 800;
+        }
+        .scan-mode-toggle {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+        .scan-mode-btn {
+            flex: 1;
+            padding: 8px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            background: white;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            text-align: center;
+            transition: all 0.2s;
+        }
+        .scan-mode-btn.active {
+            border-color: #667eea;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+        }
+        #qr-reader {
+            width: 100%;
+            max-width: 300px;
+            margin: 0 auto;
+        }
+        #qr-reader video {
+            width: 100%;
+            border-radius: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="page-header">
+            <h1>🎭 身份分配</h1>
+        </div>
+
+        <div id="content">
+            <div class="loading">加载中</div>
+        </div>
+
+        <div class="card">
+            <a href="/staff" class="btn btn-sm" style="background: #f0f0f0; color: #666; display: block; text-align: center; text-decoration: none;">← 返回控制台</a>
+        </div>
+    </div>
+
+    <script src="/static/js/common.js"></script>
+    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+    <script>
+        if (!getToken() || getRole() !== 'STAFF') {
+            window.location.href = '/staff/login';
+        }
+
+        let gameData = null;
+        let html5QrcodeScanner = null;
+        let isScanning = false;
+
+        async function loadPage() {
+            try {
+                const data = await apiGet('/api/staff/games/current/overview');
+                if (!data) return;
+                gameData = data;
+                renderPage(data);
+            } catch (err) {
+                document.getElementById('content').innerHTML =
+                    `<div class="card"><p style="color: red;">${err.message}</p></div>`;
+            }
+        }
+
+        function updatePreview() {
+            const total = gameData?.statistics?.total || 0;
+            const catRatio = parseFloat(document.getElementById('cat-ratio')?.value || 10);
+            const catCount = Math.max(1, Math.round(total * catRatio / 100));
+            const mouseCount = total - catCount;
+
+            const preview = document.getElementById('assign-preview');
+            if (preview) {
+                preview.innerHTML = `
+                    <div style="display: flex; justify-content: space-around;">
+                        <div>
+                            <div class="preview-number">🐱 ${catCount}</div>
+                            <div style="opacity: 0.8;">猫</div>
+                        </div>
+                        <div>
+                            <div class="preview-number">🐭 ${mouseCount}</div>
+                            <div style="opacity: 0.8;">鼠</div>
+                        </div>
+                    </div>
+                `;
+            }
+        }
+
+        function renderPage(data) {
+            const game = data.game;
+            const stats = data.statistics;
+
+            const canAssign = game.status === 'PENDING' || game.status === 'READY';
+            const isAssigned = ['ROLE_ASSIGNED', 'TEAM_ASSIGNED', 'RUNNING', 'FINISHING', 'FINISHED'].includes(game.status);
+
+            let html = `
+                <div class="card">
+                    <div class="stats-grid">
+                        <div class="stat-box">
+                            <div class="stat-number">${stats.total}</div>
+                            <div class="stat-label">总人数</div>
+                        </div>
+                        <div class="stat-box">
+                            <div class="stat-number" style="color: #2ed573;">${stats.online}</div>
+                            <div class="stat-label">在线</div>
+                        </div>
+                        <div class="stat-box">
+                            <div class="stat-number">${stats.pre_assigned_cats}</div>
+                            <div class="stat-label">已指定猫</div>
+                        </div>
+                        <div class="stat-box">
+                            <div class="stat-number">${stats.cats}</div>
+                            <div class="stat-label">已分配猫</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            if (canAssign) {
+                const defaultCatPercent = Math.round(game.cat_ratio * 100);
+                html += `
+                    <div class="card">
+                        <div class="card-title">⚙️ 分配设置</div>
+                        <div class="setting-row">
+                            <span class="setting-label">猫的比例</span>
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <input type="number" class="setting-input" id="cat-ratio" value="${defaultCatPercent}" min="1" max="50" onchange="updatePreview()" oninput="updatePreview()">
+                                <span>%</span>
+                            </div>
+                        </div>
+                        <div class="preview-box" id="assign-preview">
+                            计算中...
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-title">扫码指定猫</div>
+                        <p style="font-size: 13px; color: #888; margin-bottom: 12px;">扫描玩家二维码，将其标记为主动做猫的玩家</p>
+
+                        <div class="scan-mode-toggle">
+                            <button class="scan-mode-btn active" onclick="switchScanMode('camera')">📷 摄像头</button>
+                            <button class="scan-mode-btn" onclick="switchScanMode('manual')">⌨️ 手动输入</button>
+                        </div>
+
+                        <div id="camera-mode">
+                            <div id="qr-reader" style="margin-bottom: 12px;"></div>
+                            <button class="btn btn-sm btn-danger" id="stop-camera-btn" onclick="stopCamera()" style="display: none; width: 100%;">停止扫码</button>
+                        </div>
+
+                        <div id="manual-mode" style="display: none;">
+                            <div style="display: flex; gap: 8px;">
+                                <input type="text" id="qr-input" placeholder="输入身份码">
+                                <button class="btn btn-sm btn-warning" onclick="assignCat()">指定</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-title">执行身份分配</div>
+                        <p style="font-size: 13px; color: #888; margin-bottom: 12px;">
+                            系统将按照上方设置的比例随机分配身份。<br>
+                            已指定的猫将保留，不足部分随机补充。
+                        </p>
+                        <button class="btn btn-primary" onclick="assignRoles()">🎭 开始身份分配</button>
+                    </div>
+                `;
+            }
+
+            if (isAssigned) {
+                html += `
+                    <div class="card">
+                        <div style="text-align: center; padding: 20px;">
+                            <div style="font-size: 50px; margin-bottom: 12px;">✅</div>
+                            <p style="font-size: 18px; font-weight: 700;">身份已分配</p>
+                            <div style="display: flex; justify-content: space-around; margin-top: 16px;">
+                                <div>
+                                    <div style="font-size: 32px; font-weight: 800;">🐱 ${stats.cats}</div>
+                                    <div style="color: #888;">猫</div>
+                                </div>
+                                <div>
+                                    <div style="font-size: 32px; font-weight: 800;">🐭 ${stats.mice}</div>
+                                    <div style="color: #888;">鼠</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            document.getElementById('content').innerHTML = html;
+
+            if (canAssign) {
+                updatePreview();
+            }
+        }
+
+        function switchScanMode(mode) {
+            document.querySelectorAll('.scan-mode-btn').forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+
+            document.getElementById('camera-mode').style.display = mode === 'camera' ? 'block' : 'none';
+            document.getElementById('manual-mode').style.display = mode === 'manual' ? 'block' : 'none';
+
+            if (mode === 'camera') {
+                startCamera();
+            } else {
+                stopCamera();
+            }
+        }
+
+        async function startCamera() {
+            if (isScanning) return;
+
+            const qrReader = document.getElementById('qr-reader');
+            if (!qrReader) return;
+
+            try {
+                html5QrcodeScanner = new Html5QrcodeScanner(
+                    "qr-reader",
+                    { fps: 10, qrbox: { width: 200, height: 200 } },
+                    false
+                );
+                html5QrcodeScanner.render(onScanSuccess, () => {});
+                isScanning = true;
+                document.getElementById('stop-camera-btn').style.display = 'block';
+            } catch (err) {
+                console.error('Camera error:', err);
+                showToast('无法启动摄像头，请使用手动输入', 'warning');
+                switchScanMode('manual');
+            }
+        }
+
+        function stopCamera() {
+            if (html5QrcodeScanner) {
+                html5QrcodeScanner.clear();
+                html5QrcodeScanner = null;
+            }
+            isScanning = false;
+            const btn = document.getElementById('stop-camera-btn');
+            if (btn) btn.style.display = 'none';
+        }
+
+        function onScanSuccess(decodedText) {
+            stopCamera();
+            document.getElementById('qr-input').value = decodedText;
+            assignCat(decodedText);
+        }
+
+        async function assignCat(qrToken) {
+            qrToken = qrToken || document.getElementById('qr-input')?.value?.trim();
+            if (!qrToken) {
+                showToast('请输入身份码', 'warning');
+                return;
+            }
+
+            try {
+                const result = await apiPost(`/api/staff/games/current/assign-cat?qr_token=${encodeURIComponent(qrToken)}`);
+                showToast(result.message, 'success');
+                if (document.getElementById('qr-input')) {
+                    document.getElementById('qr-input').value = '';
+                }
+                loadPage();
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        }
+
+        async function assignRoles() {
+            const total = gameData?.statistics?.total || 0;
+            const catRatio = parseFloat(document.getElementById('cat-ratio')?.value || 10);
+            const catCount = Math.max(1, Math.round(total * catRatio / 100));
+            const mouseCount = total - catCount;
+
+            const confirmed = await showConfirm(
+                '确认身份分配',
+                `分配比例：猫 ${catRatio}%，鼠 ${100 - catRatio}%\n\n🐱 猫：${catCount} 人\n🐭 鼠：${mouseCount} 人\n\n已指定猫：${gameData?.statistics?.pre_assigned_cats || 0} 人\n\n⚠️ 身份分配完成后角色将锁定，无法修改！`
+            );
+            if (!confirmed) return;
+
+            try {
+                const result = await apiPost(`/api/staff/games/current/assign-roles?cat_ratio=${catRatio / 100}`);
+                showToast(`分配完成！猫: ${result.cats}，鼠: ${result.mice}`, 'success');
+                stopCamera();
+                loadPage();
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        }
+
+        loadPage();
+    </script>
+</body>
+</html>

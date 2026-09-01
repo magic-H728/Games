@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>我的游戏记录 - 躲猫猫大挑战</title>
+    <link rel="stylesheet" href="/static/css/common.css">
+    <style>
+        .history-card {
+            background: white;
+            border-radius: 16px;
+            padding: 20px;
+            margin-bottom: 16px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            border-left: 4px solid #667eea;
+        }
+        .history-card.current {
+            border-left: 4px solid #2ed573;
+            background: linear-gradient(135deg, #f8fff8, #ffffff);
+        }
+        .history-card.finished {
+            border-left: 4px solid #888;
+            opacity: 0.9;
+        }
+        .history-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 16px;
+        }
+        .history-title {
+            font-size: 18px;
+            font-weight: 700;
+            color: #333;
+        }
+        .history-subtitle {
+            font-size: 12px;
+            color: #888;
+            margin-top: 4px;
+        }
+        .history-badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .badge-current {
+            background: #2ed573;
+            color: white;
+        }
+        .badge-finished {
+            background: #888;
+            color: white;
+        }
+        .my-role-display {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px;
+            background: #f8f9fa;
+            border-radius: 12px;
+            margin-bottom: 16px;
+        }
+        .my-role-icon {
+            font-size: 40px;
+        }
+        .my-role-info {
+            flex: 1;
+        }
+        .my-role-name {
+            font-size: 16px;
+            font-weight: 700;
+        }
+        .my-role-team {
+            font-size: 13px;
+            color: #888;
+        }
+        .data-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+        .data-item {
+            text-align: center;
+            padding: 12px;
+            background: #f8f9fa;
+            border-radius: 10px;
+        }
+        .data-number {
+            font-size: 24px;
+            font-weight: 800;
+            color: #667eea;
+        }
+        .data-label {
+            font-size: 12px;
+            color: #888;
+            margin-top: 4px;
+        }
+        .game-info {
+            font-size: 13px;
+            color: #666;
+            padding-top: 12px;
+            border-top: 1px solid #f0f0f0;
+        }
+        .game-info-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 4px 0;
+        }
+        .detail-btn {
+            display: block;
+            width: 100%;
+            padding: 10px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            text-align: center;
+            margin-top: 12px;
+        }
+        .detail-btn:active {
+            transform: scale(0.98);
+        }
+        /* 详情弹窗样式 */
+        .detail-section {
+            margin-bottom: 16px;
+        }
+        .detail-section-title {
+            font-size: 14px;
+            font-weight: 700;
+            color: #333;
+            margin-bottom: 8px;
+            padding-bottom: 4px;
+            border-bottom: 2px solid #667eea;
+        }
+        .detail-list-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #f0f0f0;
+            font-size: 13px;
+        }
+        .detail-list-item:last-child {
+            border-bottom: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="page-header">
+            <h1>📜 我的游戏记录</h1>
+        </div>
+
+        <div id="content">
+            <div class="loading">加载中</div>
+        </div>
+
+        <div class="card">
+            <a href="/player" class="btn btn-sm" style="background: #f0f0f0; color: #666; display: block; text-align: center; text-decoration: none;">← 返回主页</a>
+        </div>
+    </div>
+
+    <!-- 详情弹窗 -->
+    <div id="detail-modal" class="modal-overlay" style="display: none;" onclick="if(event.target===this)closeDetailModal()">
+        <div class="modal" style="max-width: 500px; max-height: 80vh; overflow-y: auto;">
+            <div class="modal-title" id="detail-title">游戏详情</div>
+            <div id="detail-content"></div>
+            <div class="modal-actions">
+                <button class="btn btn-sm" style="background: #f0f0f0; color: #666;" onclick="closeDetailModal()">关闭</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/common.js"></script>
+    <script>
+        if (!getToken() || getRole() !== 'PLAYER') {
+            window.location.href = '/player/login';
+        }
+
+        async function loadHistory() {
+            try {
+                const data = await apiGet('/api/players/me/history');
+                if (!data) return;
+                renderHistory(data);
+            } catch (err) {
+                document.getElementById('content').innerHTML =
+                    `<div class="card"><p style="color: red;">${err.message}</p></div>`;
+            }
+        }
+
+        function renderHistory(games) {
+            if (games.length === 0) {
+                document.getElementById('content').innerHTML = `
+                    <div class="card">
+                        <div style="text-align: center; padding: 40px; color: #888;">
+                            <div style="font-size: 60px; margin-bottom: 16px;">📜</div>
+                            <p style="font-size: 16px;">暂无游戏记录</p>
+                            <p style="font-size: 13px; margin-top: 8px;">参与游戏后，记录将显示在这里</p>
+                        </div>
+                    </div>
+                `;
+                return;
+            }
+
+            let html = '';
+            games.forEach(game => {
+                const isCurrent = game.is_current;
+                const cardClass = isCurrent ? 'current' : 'finished';
+                const badgeClass = isCurrent ? 'badge-current' : 'badge-finished';
+                const badgeText = isCurrent ? '当前游戏' : '已结束';
+
+                const roleIcon = game.my_role === 'CAT' ? '🐱' : game.my_role === 'MOUSE' ? '🐭' : '❓';
+                const roleName = game.my_role === 'CAT' ? '猫' : game.my_role === 'MOUSE' ? '鼠' : '未分配';
+                const teamName = game.my_team || '未分队';
+
+                html += `
+                    <div class="history-card ${cardClass}">
+                        <div class="history-header">
+                            <div>
+                                <div class="history-title">${game.name}</div>
+                                <div class="history-subtitle">${formatDateTime(game.started_at)} - ${game.finished_at ? formatDateTime(game.finished_at) : '进行中'}</div>
+                            </div>
+                            <span class="history-badge ${badgeClass}">${badgeText}</span>
+                        </div>
+
+                        <div class="my-role-display">
+                            <div class="my-role-icon">${roleIcon}</div>
+                            <div class="my-role-info">
+                                <div class="my-role-name">我的身份：${roleName}</div>
+                                <div class="my-role-team">所属队伍：${teamName}</div>
+                            </div>
+                        </div>
+
+                        <div class="data-grid">
+                            <div class="data-item">
+                                <div class="data-number">${game.my_score}</div>
+                                <div class="data-label">总积分</div>
+                            </div>
+                            ${game.my_role === 'CAT' ? `
+                            <div class="data-item">
+                                <div class="data-number" style="color: #ff6b6b;">${game.capture_count}</div>
+                                <div class="data-label">抓捕次数</div>
+                            </div>
+                            ` : `
+                            <div class="data-item">
+                                <div class="data-number" style="color: #ffa502;">${game.revive_count}</div>
+                                <div class="data-label">复活次数</div>
+                            </div>
+                            `}
+                            <div class="data-item">
+                                <div class="data-number" style="font-size: 18px;">${game.my_role === 'CAT' ? '-' : formatTime(game.survival_seconds || 0)}</div>
+                                <div class="data-label">${game.my_role === 'CAT' ? '' : '生存时间'}</div>
+                            </div>
+                        </div>
+
+                        <div class="game-info">
+                            <div class="game-info-item">
+                                <span>游戏状态</span>
+                                <span>${getStatusText(game.status)}</span>
+                            </div>
+                            ${game.finished_at ? `
+                            <div class="game-info-item">
+                                <span>游戏时长</span>
+                                <span>${calculateDuration(game.started_at, game.finished_at)}</span>
+                            </div>
+                            ` : ''}
+                        </div>
+
+                        <button class="detail-btn" onclick="viewGameDetail(${game.game_id})">📊 查看完整数据</button>
+                    </div>
+                `;
+            });
+
+            document.getElementById('content').innerHTML = html;
+        }
+
+        function getStatusText(status) {
+            const map = {
+                'PENDING': '等待中',
+                'ROLE_ASSIGNED': '身份已分配',
+                'TEAM_ASSIGNED': '队伍已分配',
+                'RUNNING': '进行中',
+                'FINISHED': '已结束'
+            };
+            return map[status] || status;
+        }
+
+        function calculateDuration(start, end) {
+            if (!start || !end) return '-';
+            const diff = new Date(end) - new Date(start);
+            const mins = Math.floor(diff / 60000);
+            const secs = Math.floor((diff % 60000) / 1000);
+            return `${mins}分${secs}秒`;
+        }
+
+        async function viewGameDetail(gameId) {
+            try {
+                const data = await apiGet(`/api/players/me/history/${gameId}`);
+                if (!data) return;
+                showDetailModal(data);
+            } catch (err) {
+                showToast('获取详情失败', 'error');
+            }
+        }
+
+        function showDetailModal(data) {
+            const game = data.game;
+            const myData = data.my_data;
+            const teamData = data.team_data;
+            const ranking = data.ranking;
+
+            let content = '';
+
+            // 我的数据
+            content += `
+                <div class="detail-section">
+                    <div class="detail-section-title">👤 我的数据</div>
+                    <div class="detail-list-item"><span>角色</span><span>${myData.role === 'CAT' ? '🐱 猫' : '🐭 鼠'}</span></div>
+                    <div class="detail-list-item"><span>队伍</span><span>${myData.team || '未分队'}</span></div>
+                    <div class="detail-list-item"><span>状态</span><span>${getStatusBadge(myData.status)}</span></div>
+                    <div class="detail-list-item"><span>总积分</span><span style="font-weight:700;color:#667eea;">${myData.total_score}</span></div>
+                    ${myData.role === 'CAT' ? `
+                    <div class="detail-list-item"><span>抓捕次数</span><span>${myData.capture_count}</span></div>
+                    ` : `
+                    <div class="detail-list-item"><span>复活次数</span><span>${myData.revive_count}</span></div>
+                    <div class="detail-list-item"><span>生存时间</span><span>${formatTime(myData.survival_seconds || 0)}</span></div>
+                    `}
+                </div>
+            `;
+
+            // 积分明细
+            if (data.score_transactions && data.score_transactions.length > 0) {
+                content += `
+                    <div class="detail-section">
+                        <div class="detail-section-title">📋 积分明细</div>
+                        ${data.score_transactions.map(tx => `
+                            <div class="detail-list-item">
+                                <span>${tx.reason}</span>
+                                <span class="${tx.score >= 0 ? 'score-positive' : 'score-negative'}">${tx.score >= 0 ? '+' : ''}${tx.score}</span>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            }
+
+            // 队伍信息
+            if (teamData && teamData.members) {
+                content += `
+                    <div class="detail-section">
+                        <div class="detail-section-title">👥 队伍成员 (${teamData.name})</div>
+                        ${teamData.members.map(m => `
+                            <div class="detail-list-item">
+                                <span>${m.name} ${m.role === 'CAT' ? '🐱' : '🐭'}${m.is_self ? ' (我)' : ''}</span>
+                                <span>${m.score}分</span>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            }
+
+            // 排名
+            if (ranking) {
+                content += `
+                    <div class="detail-section">
+                        <div class="detail-section-title">🏆 排名</div>
+                        <div class="detail-list-item"><span>个人排名</span><span>${ranking.player_rank ? `第 ${ranking.player_rank} 名` : '-'}</span></div>
+                        <div class="detail-list-item"><span>队伍排名</span><span>${ranking.team_rank ? `第 ${ranking.team_rank} 名` : '-'}</span></div>
+                    </div>
+                `;
+            }
+
+            document.getElementById('detail-title').textContent = game.name + ' - 详细数据';
+            document.getElementById('detail-content').innerHTML = content;
+            document.getElementById('detail-modal').style.display = 'flex';
+        }
+
+        function closeDetailModal() {
+            document.getElementById('detail-modal').style.display = 'none';
+        }
+
+        loadHistory();
+    </script>
+</body>
+</html>

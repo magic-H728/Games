@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>扫码抓捕 - 躲猫猫大挑战</title>
+    <link rel="stylesheet" href="/static/css/common.css">
+    <style>
+        .qr-container {
+            text-align: center;
+            padding: 20px;
+            background: white;
+            border-radius: 16px;
+            display: inline-block;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+        .qr-code-box {
+            width: 180px;
+            height: 180px;
+            margin: 0 auto;
+        }
+        .qr-token-text {
+            font-size: 13px;
+            color: #666;
+            margin-top: 12px;
+            word-break: break-all;
+            font-family: monospace;
+            background: #f5f5f5;
+            padding: 6px 10px;
+            border-radius: 6px;
+            display: inline-block;
+        }
+        .scan-mode-toggle {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+        .scan-mode-btn {
+            flex: 1;
+            padding: 10px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            background: white;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            text-align: center;
+            transition: all 0.2s;
+        }
+        .scan-mode-btn.active {
+            border-color: #667eea;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+        }
+        #qr-reader {
+            width: 100%;
+            max-width: 350px;
+            margin: 0 auto;
+        }
+        #qr-reader video {
+            width: 100%;
+            border-radius: 12px;
+        }
+        .capture-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px;
+            border-bottom: 1px solid #f0f0f0;
+            cursor: pointer;
+        }
+        .capture-item:hover {
+            background: #f8f9fa;
+        }
+        .capture-item:last-child {
+            border-bottom: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="page-header">
+            <h1>📷 扫码</h1>
+        </div>
+
+        <div class="nav-bar">
+            <a href="/player" class="nav-item">🏠 主页</a>
+            <a href="/player/team" class="nav-item">👥 队伍</a>
+            <a href="/player/capture" class="nav-item active">📷 扫码</a>
+            <a href="/player/ranking" class="nav-item">🏆 排行</a>
+        </div>
+
+        <div id="content">
+            <div class="loading">加载中</div>
+        </div>
+    </div>
+
+    <!-- 成员详情弹窗 -->
+    <div id="member-modal" class="modal-overlay" style="display: none;" onclick="if(event.target===this)closeModal()">
+        <div class="modal">
+            <div class="modal-title" id="modal-title">成员信息</div>
+            <div id="modal-content"></div>
+            <div class="modal-actions">
+                <button class="btn btn-sm" style="background: #f0f0f0; color: #666;" onclick="closeModal()">关闭</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/common.js"></script>
+    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+    <script>
+        if (!getToken() || getRole() !== 'PLAYER') {
+            window.location.href = '/player/login';
+        }
+
+        let playerInfo = null;
+        let html5QrcodeScanner = null;
+        let isScanning = false;
+
+        async function loadPage() {
+            try {
+                playerInfo = await apiGet('/api/players/me');
+                if (!playerInfo) return;
+                renderPage(playerInfo);
+            } catch (err) {
+                document.getElementById('content').innerHTML =
+                    `<div class="card"><p style="color: red;">${err.message}</p></div>`;
+            }
+        }
+
+        // QR码缓存（使用base64图片数据）
+        let qrImageDataCache = null;
+        let qrTokenCache = null;
+        let qrLoading = false;
+
+        // 预加载二维码图片并转为base64
+        async function preloadQRCode(token) {
+            if (qrImageDataCache && qrTokenCache === token) {
+                return qrImageDataCache;
+            }
+
+            qrLoading = true;
+            const encodedText = encodeURIComponent(token);
+            const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodedText}`;
+
+            try {
+                const response = await fetch(qrUrl);
+                const blob = await response.blob();
+                const base64 = await new Promise((resolve) => {
+                    const reader = new FileReader();
+                    reader.onloadend = () => resolve(reader.result);
+                    reader.readAsDataURL(blob);
+                });
+
+                qrImageDataCache = base64;
+                qrTokenCache = token;
+                qrLoading = false;
+                return base64;
+            } catch (err) {
+                qrLoading = false;
+                console.error('QR code preload failed:', err);
+                return null;
+            }
+        }
+
+        function getQRCodeHTML() {
+            if (qrLoading) {
+                return '<div style="width:180px;height:180px;display:flex;align-items:center;justify-content:center;background:#f5f5f5;border-radius:12px;">加载中...</div>';
+            }
+            if (qrImageDataCache) {
+                return `<img src="${qrImageDataCache}" alt="QR Code" style="width: 180px; height: 180px;">`;
+            }
+            return '<div style="font-size:60px;">📱</div>';
+        }
+
+        async function refreshQRCode() {
+            qrImageDataCache = null;
+            qrTokenCache = null;
+            showToast('正在刷新二维码...', 'info');
+            await loadPage();
+            showToast('二维码已刷新', 'success');
+        }
+
+        function renderPage(data) {
+            let html = '';
+
+            // 猫的界面：扫码放在上面
+            if (data.role === 'CAT') {
+                html += `
+                    <div class="card">
+                        <div class="card-title">🐱 扫描老鼠二维码</div>
+                        <div class="scan-mode-toggle">
+                            <button class="scan-mode-btn active" onclick="switchMode('camera')">📷 摄像头</button>
+                            <button class="scan-mode-btn" onclick="switchMode('manual')">⌨️ 手动输入</button>
+                        </div>
+
+                        <div id="camera-mode">
+                            <div id="qr-reader" style="margin-bottom: 12px;"></div>
+                            <button class="btn btn-sm btn-danger" id="stop-camera-btn" onclick="stopCamera()" style="display: none; width: 100%;">停止扫码</button>
+                        </div>
+
+                        <div id="manual-mode" style="display: none;">
+                            <div style="display: flex; gap: 8px;">
+                                <input type="text" id="qr-input" placeholder="输入身份码" style="flex: 1;">
+                                <button class="btn btn-sm btn-danger" onclick="doCapture()">抓捕</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-title">📊 我的抓捕 (${data.capture_count || 0})</div>
+                        <div id="capture-list" style="cursor: pointer;">加载中...</div>
+                    </div>
+                `;
+            }
+
+            // 鼠的界面
+            if (data.role === 'MOUSE') {
+                html += `
+                    <div class="card">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                            <div class="card-title" style="margin-bottom: 0;">🐭 我的状态</div>
+                            <button class="btn btn-sm" style="background: #667eea; color: white; padding: 6px 12px;" onclick="loadPage()">🔄 刷新</button>
+                        </div>
+                        <div style="text-align: center; padding: 10px 0;">
+                            ${getStatusBadge(data.status)}
+                        </div>
+                        <p style="font-size: 13px; color: #888; text-align: center;">
+                            ${data.status === 'DEAD' ? '请联系工作人员进行复活挑战' : '小心躲藏，避免被猫发现！'}
+                        </p>
+                        ${data.protect_until ? `
+                        <div style="text-align: center; margin-top: 8px;">
+                            <span class="badge badge-protected">🛡️ 复活保护中</span>
+                        </div>
+                        ` : ''}
+                    </div>
+                `;
+            }
+
+            // 身份码（鼠显示在上面，猫显示在下面）
+            html += `
+                <div class="card">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                        <div class="card-title" style="margin-bottom: 0;">我的身份码</div>
+                        <button class="btn btn-sm" style="background: #667eea; color: white; padding: 6px 12px;" onclick="refreshQRCode()">🔄 刷新</button>
+                    </div>
+                    <div style="text-align: center;">
+                        <div class="qr-container">
+                            <div class="qr-code-box" id="qr-code-display">
+                                ${getQRCodeHTML()}
+                            </div>
+                            <div class="qr-token-text">${data.qr_token}</div>
+                        </div>
+                        <p style="font-size: 12px; color: #aaa; margin-top: 8px;">让工作人员扫描此码</p>
+                    </div>
+                </div>
+            `;
+
+            document.getElementById('content').innerHTML = html;
+
+            // 预加载二维码图片（如果还没有缓存）
+            if (!qrImageDataCache || qrTokenCache !== data.qr_token) {
+                preloadQRCode(data.qr_token).then(() => {
+                    const display = document.getElementById('qr-code-display');
+                    if (display) {
+                        display.innerHTML = getQRCodeHTML();
+                    }
+                });
+            }
+
+            // 如果是猫，自动启动摄像头并加载抓捕记录
+            if (data.role === 'CAT') {
+                setTimeout(() => startCamera(), 100);
+                loadCaptureRecords();
+            }
+        }
+
+        function switchMode(mode) {
+            document.querySelectorAll('.scan-mode-btn').forEach(btn => btn.classList.remove('active'));
+
+            if (mode === 'camera') {
+                document.querySelector('.scan-mode-btn:first-child').classList.add('active');
+                document.getElementById('camera-mode').style.display = 'block';
+                document.getElementById('manual-mode').style.display = 'none';
+                startCamera();
+            } else {
+                document.querySelector('.scan-mode-btn:last-child').classList.add('active');
+                document.getElementById('camera-mode').style.display = 'none';
+                document.getElementById('manual-mode').style.display = 'block';
+                stopCamera();
+            }
+        }
+
+        async function startCamera() {
+            if (isScanning) return;
+
+            const qrReader = document.getElementById('qr-reader');
+            if (!qrReader) return;
+
+            try {
+                html5QrcodeScanner = new Html5QrcodeScanner(
+                    "qr-reader",
+                    { fps: 10, qrbox: { width: 200, height: 200 } },
+                    false
+                );
+                html5QrcodeScanner.render(onScanSuccess, onScanError);
+                isScanning = true;
+                document.getElementById('stop-camera-btn').style.display = 'block';
+            } catch (err) {
+                console.error('Camera error:', err);
+                showToast('无法启动摄像头，请使用手动输入', 'warning');
+                switchMode('manual');
+            }
+        }
+
+        function stopCamera() {
+            if (html5QrcodeScanner) {
+                html5QrcodeScanner.clear();
+                html5QrcodeScanner = null;
+            }
+            isScanning = false;
+            const btn = document.getElementById('stop-camera-btn');
+            if (btn) btn.style.display = 'none';
+        }
+
+        function onScanSuccess(decodedText) {
+            stopCamera();
+            doCaptureWithToken(decodedText);
+        }
+
+        function onScanError() {}
+
+        async function doCapture() {
+            const qrToken = document.getElementById('qr-input').value.trim();
+            if (!qrToken) {
+                showToast('请输入身份码', 'warning');
+                return;
+            }
+            await doCaptureWithToken(qrToken);
+        }
+
+        async function doCaptureWithToken(qrToken) {
+            try {
+                const result = await apiPost('/api/captures/', { qr_token: qrToken });
+                if (result) {
+                    showToast(result.message, result.success ? 'success' : 'error');
+                    if (result.success) {
+                        loadPage();
+                    }
+                }
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        }
+
+        async function loadCaptureRecords() {
+            try {
+                const data = await apiGet('/api/players/me/captures');
+                if (!data) return;
+
+                const el = document.getElementById('capture-list');
+                if (!el) return;
+
+                if (data.length === 0) {
+                    el.innerHTML = '<div style="text-align: center; color: #888; padding: 10px;">暂无抓捕记录</div>';
+                    return;
+                }
+
+                el.innerHTML = data.map(c => `
+                    <div class="capture-item" onclick="showMouseDetail(${c.mouse_id})">
+                        <div>
+                            <div style="font-weight: 600;">🐭 ${c.mouse_name}</div>
+                            <div style="font-size: 12px; color: #888;">${c.student_id} | ${formatDateTime(c.captured_at)}</div>
+                        </div>
+                        <div style="color: #667eea; font-weight: 600;">+${c.score}分</div>
+                    </div>
+                `).join('');
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        async function showMouseDetail(mouseId) {
+            try {
+                const data = await apiGet(`/api/players/${mouseId}/brief`);
+                if (!data) return;
+
+                document.getElementById('modal-title').textContent = data.name;
+                document.getElementById('modal-content').innerHTML = `
+                    <div style="text-align: center; margin-bottom: 16px;">
+                        <div style="font-size: 50px; margin-bottom: 8px;">🐭</div>
+                        <div style="font-size: 18px; font-weight: 700;">${data.name}</div>
+                    </div>
+                    <div class="list-item">
+                        <span style="color: #888;">学号</span>
+                        <span style="font-weight: 600;">${data.student_id}</span>
+                    </div>
+                    <div class="list-item">
+                        <span style="color: #888;">微信号</span>
+                        <span style="font-weight: 600;">${data.wechat_id || '未填写'}</span>
+                    </div>
+                    <div class="list-item">
+                        <span style="color: #888;">队伍</span>
+                        <span style="font-weight: 600;">${data.team_name || '未分配'}</span>
+                    </div>
+                    <div class="list-item">
+                        <span style="color: #888;">状态</span>
+                        <span>${getStatusBadge(data.status)}</span>
+                    </div>
+                `;
+                document.getElementById('member-modal').style.display = 'flex';
+            } catch (err) {
+                showToast('获取信息失败', 'error');
+            }
+        }
+
+        function closeModal() {
+            document.getElementById('member-modal').style.display = 'none';
+        }
+
+        loadPage();
+    </script>
+</body>
+</html>

@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>小游戏管理 - 躲猫猫大挑战</title>
+    <link rel="stylesheet" href="/static/css/common.css">
+    <style>
+        .scan-mode-toggle {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+        .scan-mode-btn {
+            flex: 1;
+            padding: 8px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            background: white;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            text-align: center;
+            transition: all 0.2s;
+        }
+        .scan-mode-btn.active {
+            border-color: #667eea;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+        }
+        #qr-reader {
+            width: 100%;
+            max-width: 300px;
+            margin: 0 auto;
+        }
+        #qr-reader video {
+            width: 100%;
+            border-radius: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="page-header">
+            <h1>🎮 小游戏管理</h1>
+        </div>
+
+        <div id="content">
+            <div class="loading">加载中</div>
+        </div>
+
+        <div class="card">
+            <button class="btn btn-primary btn-block" onclick="showCreateForm()">➕ 创建小游戏</button>
+        </div>
+
+        <div class="card">
+            <a href="/staff" class="btn btn-sm" style="background: #f0f0f0; color: #666; display: block; text-align: center; text-decoration: none;">← 返回控制台</a>
+        </div>
+    </div>
+
+    <div id="modal-container"></div>
+
+    <script src="/static/js/common.js"></script>
+    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+    <script>
+        if (!getToken() || getRole() !== 'STAFF') {
+            window.location.href = '/staff/login';
+        }
+
+        let miniGames = [];
+        let selectedMiniGame = null;
+        let html5QrcodeScanner = null;
+        let isScanning = false;
+
+        async function loadMiniGames() {
+            try {
+                miniGames = await apiGet('/api/mini-games/');
+                renderMiniGames();
+            } catch (err) {
+                document.getElementById('content').innerHTML =
+                    `<div class="card"><p style="color: red;">${err.message}</p></div>`;
+            }
+        }
+
+        function renderMiniGames() {
+            if (miniGames.length === 0) {
+                document.getElementById('content').innerHTML =
+                    `<div class="card"><div style="text-align: center; padding: 20px; color: #888;">暂无小游戏，请创建</div></div>`;
+                return;
+            }
+
+            let html = '';
+            miniGames.forEach(mg => {
+                html += `
+                    <div class="card">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                            <div style="font-size: 18px; font-weight: 700;">${mg.name}</div>
+                            <div>${mg.is_scored ? '<span class="badge badge-alive">计分</span>' : '<span class="badge badge-waiting">不计分</span>'}</div>
+                        </div>
+                        ${mg.description ? `<p style="font-size: 13px; color: #888; margin-bottom: 8px;">${mg.description}</p>` : ''}
+                        <div style="font-size: 13px; color: #666;">
+                            <div>通过分数: ${mg.pass_score}</div>
+                            ${mg.is_scored ? `<div>奖励: 🥇${mg.reward_first}分 🥈${mg.reward_second}分 🥉${mg.reward_third}分</div>` : ''}
+                        </div>
+                        <div style="display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap;">
+                            <button class="btn btn-sm btn-success" onclick="startGameForMouse(${mg.id}, '${mg.name}')">🎮 让鼠挑战</button>
+                            <button class="btn btn-sm" style="background: #f0f0f0; color: #666;" onclick="viewRanking(${mg.id}, '${mg.name}')">🏆 排行榜</button>
+                            <button class="btn btn-sm" style="background: #f0f0f0; color: #666;" onclick="editMiniGame(${mg.id})">✏️ 编辑</button>
+                        </div>
+                    </div>
+                `;
+            });
+
+            document.getElementById('content').innerHTML = html;
+        }
+
+        // 开始让鼠挑战小游戏
+        function startGameForMouse(mgId, mgName) {
+            selectedMiniGame = miniGames.find(m => m.id === mgId);
+
+            const modal = document.getElementById('modal-container');
+            modal.innerHTML = `
+                <div class="modal-overlay" onclick="if(event.target===this)closeGameModal()">
+                    <div class="modal" style="max-width: 450px;">
+                        <div class="modal-title">🎮 ${mgName} - 扫码挑战</div>
+                        <p style="font-size: 13px; color: #888; margin-bottom: 12px;">扫描死亡老鼠的身份码，让其参与挑战</p>
+
+                        <div class="scan-mode-toggle">
+                            <button class="scan-mode-btn active" onclick="switchScanMode('camera')">📷 摄像头</button>
+                            <button class="scan-mode-btn" onclick="switchScanMode('manual')">⌨️ 手动输入</button>
+                        </div>
+
+                        <div id="game-camera-mode">
+                            <div id="qr-reader" style="margin-bottom: 12px;"></div>
+                        </div>
+
+                        <div id="game-manual-mode" style="display: none;">
+                            <div style="display: flex; gap: 8px;">
+                                <input type="text" id="game-qr-input" placeholder="输入身份码" style="flex: 1;">
+                                <button class="btn btn-sm btn-primary" onclick="lookupMouseForGame()">查找</button>
+                            </div>
+                        </div>
+
+                        <div id="game-result" style="margin-top: 12px;"></div>
+
+                        <div class="modal-actions">
+                            <button class="btn btn-sm" style="background: #f0f0f0; color: #666;" onclick="closeGameModal()">关闭</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            setTimeout(() => startGameCamera(), 100);
+        }
+
+        function switchScanMode(mode) {
+            document.querySelectorAll('.scan-mode-btn').forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+
+            document.getElementById('game-camera-mode').style.display = mode === 'camera' ? 'block' : 'none';
+            document.getElementById('game-manual-mode').style.display = mode === 'manual' ? 'block' : 'none';
+
+            if (mode === 'camera') {
+                startGameCamera();
+            } else {
+                stopGameCamera();
+            }
+        }
+
+        async function startGameCamera() {
+            if (isScanning) return;
+
+            const qrReader = document.getElementById('qr-reader');
+            if (!qrReader) return;
+
+            try {
+                html5QrcodeScanner = new Html5QrcodeScanner(
+                    "qr-reader",
+                    { fps: 10, qrbox: { width: 200, height: 200 } },
+                    false
+                );
+                html5QrcodeScanner.render(onGameScanSuccess, () => {});
+                isScanning = true;
+            } catch (err) {
+                console.error('Camera error:', err);
+                switchScanMode('manual');
+            }
+        }
+
+        function stopGameCamera() {
+            if (html5QrcodeScanner) {
+                html5QrcodeScanner.clear();
+                html5QrcodeScanner = null;
+            }
+            isScanning = false;
+        }
+
+        function onGameScanSuccess(decodedText) {
+            stopGameCamera();
+            document.getElementById('game-qr-input').value = decodedText;
+            lookupMouseForGame(decodedText);
+        }
+
+        function closeGameModal() {
+            stopGameCamera();
+            document.getElementById('modal-container').innerHTML = '';
+        }
+
+        document.getElementById('game-qr-input')?.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') lookupMouseForGame();
+        });
+
+        async function lookupMouseForGame(qrToken) {
+            qrToken = qrToken || document.getElementById('game-qr-input')?.value?.trim();
+            if (!qrToken) {
+                showToast('请输入或扫描身份码', 'warning');
+                return;
+            }
+
+            try {
+                const players = await apiGet(`/api/staff/players?search=${encodeURIComponent(qrToken)}`);
+                if (!players || players.length === 0) {
+                    document.getElementById('game-result').innerHTML =
+                        `<div class="alert alert-danger">未找到该玩家</div>`;
+                    return;
+                }
+
+                const player = players.find(p => p.qr_token === qrToken) || players[0];
+
+                if (player.role !== 'MOUSE') {
+                    document.getElementById('game-result').innerHTML =
+                        `<div class="alert alert-warning">该玩家不是老鼠</div>`;
+                    return;
+                }
+
+                if (player.status !== 'DEAD') {
+                    document.getElementById('game-result').innerHTML =
+                        `<div class="alert alert-success">该老鼠目前存活，无需复活</div>`;
+                    return;
+                }
+
+                // 发起复活挑战
+                const result = await apiPost('/api/revives/start', {
+                    qr_token: qrToken,
+                    mini_game_id: selectedMiniGame.id
+                });
+
+                if (result) {
+                    showChallengeForm(result);
+                }
+            } catch (err) {
+                document.getElementById('game-result').innerHTML =
+                    `<div class="alert alert-danger">${err.message}</div>`;
+            }
+        }
+
+        function showChallengeForm(reviveResult) {
+            const isScored = reviveResult.mini_game.is_scored;
+            const passScore = reviveResult.mini_game.pass_score;
+
+            let formHtml = '';
+
+            if (isScored) {
+                // 积分游戏：输入分数，系统判断
+                formHtml = `
+                    <div class="form-group" style="margin-bottom: 12px;">
+                        <label>输入游戏成绩（需≥${passScore}分才能复活）</label>
+                        <input type="number" id="challenge-score" placeholder="输入分数" min="0" max="100">
+                    </div>
+                    <button class="btn btn-primary btn-block" onclick="submitScoredChallenge(${reviveResult.attempt_id}, ${passScore})">📤 提交成绩</button>
+                `;
+            } else {
+                // 非积分游戏：只有通过/不通过
+                formHtml = `
+                    <div style="display: flex; gap: 8px;">
+                        <button class="btn btn-sm" style="flex:1; background: #ff6b6b; color: white;" onclick="completeChallenge(${reviveResult.attempt_id}, 0, false)">❌ 未通过</button>
+                        <button class="btn btn-sm btn-success" style="flex:1;" onclick="completeChallenge(${reviveResult.attempt_id}, 0, true)">✅ 通过复活</button>
+                    </div>
+                `;
+            }
+
+            document.getElementById('game-result').innerHTML = `
+                <div style="background: #f8f9fa; border-radius: 12px; padding: 16px; margin-top: 12px;">
+                    <div style="text-align: center; margin-bottom: 12px;">
+                        <div style="font-size: 36px; margin-bottom: 4px;">🐭</div>
+                        <div style="font-size: 16px; font-weight: 700;">${reviveResult.player_name}</div>
+                        <div style="font-size: 13px; color: #888;">小游戏: ${reviveResult.mini_game.name}</div>
+                        <div style="font-size: 13px; color: #888;">${isScored ? `通过分数: ≥${passScore}` : '不计分游戏'}</div>
+                    </div>
+                    ${formHtml}
+                </div>
+            `;
+        }
+
+        // 积分游戏：提交成绩，系统判断
+        async function submitScoredChallenge(attemptId, passScore) {
+            const score = parseInt(document.getElementById('challenge-score')?.value || '0');
+            const passed = score >= passScore;
+            await completeChallenge(attemptId, score, passed);
+        }
+
+        async function completeChallenge(attemptId, score, passed) {
+            try {
+                const result = await apiPost(`/api/revives/${attemptId}/complete`, {
+                    attempt_id: attemptId,
+                    score: score,
+                    passed: passed
+                });
+
+                if (result) {
+                    if (result.success) {
+                        document.getElementById('game-result').innerHTML = `
+                            <div class="alert alert-success" style="text-align: center;">
+                                <div style="font-size: 36px; margin-bottom: 8px;">🎉</div>
+                                <div style="font-weight: 700;">复活成功！</div>
+                                <div style="font-size: 13px; margin-top: 4px;">${result.message}</div>
+                            </div>
+                        `;
+                    } else {
+                        document.getElementById('game-result').innerHTML =
+                            `<div class="alert alert-warning">${result.message}</div>`;
+                    }
+                }
+            } catch (err) {
+                document.getElementById('game-result').innerHTML =
+                    `<div class="alert alert-danger">${err.message}</div>`;
+            }
+        }
+
+        function showCreateForm() {
+            const modal = document.getElementById('modal-container');
+            modal.innerHTML = `
+                <div class="modal-overlay" onclick="if(event.target===this)this.remove()">
+                    <div class="modal">
+                        <div class="modal-title">创建小游戏</div>
+                        <div class="form-group">
+                            <label>游戏名称</label>
+                            <input type="text" id="mg-name" placeholder="如：记忆挑战">
+                        </div>
+                        <div class="form-group">
+                            <label>游戏说明</label>
+                            <input type="text" id="mg-desc" placeholder="选填">
+                        </div>
+                        <div class="form-group">
+                            <label>是否计分</label>
+                            <select id="mg-scored">
+                                <option value="false">否 - 仅用于复活</option>
+                                <option value="true">是 - 参与积分排行</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>通过分数</label>
+                            <input type="number" id="mg-pass" value="60" min="0" max="100">
+                        </div>
+                        <div id="reward-fields" style="display: none;">
+                            <div class="form-group">
+                                <label>🥇 第一名奖励</label>
+                                <input type="number" id="mg-r1" value="30" min="0">
+                            </div>
+                            <div class="form-group">
+                                <label>🥈 第二名奖励</label>
+                                <input type="number" id="mg-r2" value="20" min="0">
+                            </div>
+                            <div class="form-group">
+                                <label>🥉 第三名奖励</label>
+                                <input type="number" id="mg-r3" value="10" min="0">
+                            </div>
+                        </div>
+                        <div class="modal-actions">
+                            <button class="btn btn-sm" style="background: #f0f0f0; color: #666;" onclick="this.closest('.modal-overlay').remove()">取消</button>
+                            <button class="btn btn-sm btn-primary" onclick="createMiniGame()">创建</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            document.getElementById('mg-scored').addEventListener('change', (e) => {
+                document.getElementById('reward-fields').style.display = e.target.value === 'true' ? 'block' : 'none';
+            });
+        }
+
+        async function createMiniGame() {
+            const data = {
+                name: document.getElementById('mg-name').value.trim(),
+                description: document.getElementById('mg-desc').value.trim() || null,
+                is_scored: document.getElementById('mg-scored').value === 'true',
+                pass_score: parseInt(document.getElementById('mg-pass').value || '60'),
+                reward_first: parseInt(document.getElementById('mg-r1')?.value || '30'),
+                reward_second: parseInt(document.getElementById('mg-r2')?.value || '20'),
+                reward_third: parseInt(document.getElementById('mg-r3')?.value || '10')
+            };
+
+            if (!data.name) {
+                showToast('请输入游戏名称', 'warning');
+                return;
+            }
+
+            try {
+                await apiPost('/api/mini-games/', data);
+                document.querySelector('.modal-overlay')?.remove();
+                showToast('创建成功', 'success');
+                loadMiniGames();
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        }
+
+        async function viewRanking(mgId, mgName) {
+            try {
+                const ranking = await apiGet(`/api/mini-games/${mgId}/ranking`);
+                const modal = document.getElementById('modal-container');
+
+                let rankingHtml = '';
+                if (ranking.length === 0) {
+                    rankingHtml = '<div style="text-align: center; color: #888; padding: 20px;">暂无记录</div>';
+                } else {
+                    rankingHtml = ranking.map(r => `
+                        <div class="rank-item">
+                            <div class="rank-number ${r.rank <= 3 ? 'rank-' + r.rank : 'rank-other'}">
+                                ${r.rank === 1 ? '🥇' : r.rank === 2 ? '🥈' : r.rank === 3 ? '🥉' : r.rank}
+                            </div>
+                            <div class="rank-info">
+                                <div class="rank-name">${r.player_name}</div>
+                                <div class="rank-team">${r.team_name || ''}</div>
+                            </div>
+                            <div class="rank-score">${r.score}分</div>
+                        </div>
+                    `).join('');
+                }
+
+                modal.innerHTML = `
+                    <div class="modal-overlay" onclick="if(event.target===this)this.remove()">
+                        <div class="modal">
+                            <div class="modal-title">🏆 ${mgName} 排行榜</div>
+                            ${rankingHtml}
+                            <div class="modal-actions">
+                                <button class="btn btn-sm" style="background: #f0f0f0; color: #666;" onclick="this.closest('.modal-overlay').remove()">关闭</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        }
+
+        async function editMiniGame(mgId) {
+            const mg = miniGames.find(m => m.id === mgId);
+            if (!mg) return;
+
+            const modal = document.getElementById('modal-container');
+            modal.innerHTML = `
+                <div class="modal-overlay" onclick="if(event.target===this)this.remove()">
+                    <div class="modal">
+                        <div class="modal-title">编辑小游戏</div>
+                        <div class="form-group">
+                            <label>游戏名称</label>
+                            <input type="text" id="edit-name" value="${mg.name}">
+                        </div>
+                        <div class="form-group">
+                            <label>游戏说明</label>
+                            <input type="text" id="edit-desc" value="${mg.description || ''}">
+                        </div>
+                        <div class="form-group">
+                            <label>是否计分</label>
+                            <select id="edit-scored">
+                                <option value="false" ${!mg.is_scored ? 'selected' : ''}>否</option>
+                                <option value="true" ${mg.is_scored ? 'selected' : ''}>是</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>通过分数</label>
+                            <input type="number" id="edit-pass" value="${mg.pass_score}">
+                        </div>
+                        <div class="form-group">
+                            <label>🥇 第一名奖励</label>
+                            <input type="number" id="edit-r1" value="${mg.reward_first}">
+                        </div>
+                        <div class="form-group">
+                            <label>🥈 第二名奖励</label>
+                            <input type="number" id="edit-r2" value="${mg.reward_second}">
+                        </div>
+                        <div class="form-group">
+                            <label>🥉 第三名奖励</label>
+                            <input type="number" id="edit-r3" value="${mg.reward_third}">
+                        </div>
+                        <div class="modal-actions">
+                            <button class="btn btn-sm" style="background: #f0f0f0; color: #666;" onclick="this.closest('.modal-overlay').remove()">取消</button>
+                            <button class="btn btn-sm btn-primary" onclick="updateMiniGame(${mgId})">保存</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        async function updateMiniGame(mgId) {
+            const data = {
+                name: document.getElementById('edit-name').value.trim(),
+                description: document.getElementById('edit-desc').value.trim() || null,
+                is_scored: document.getElementById('edit-scored').value === 'true',
+                pass_score: parseInt(document.getElementById('edit-pass').value || '60'),
+                reward_first: parseInt(document.getElementById('edit-r1').value || '30'),
+                reward_second: parseInt(document.getElementById('edit-r2').value || '20'),
+                reward_third: parseInt(document.getElementById('edit-r3').value || '10')
+            };
+
+            try {
+                await apiPut(`/api/mini-games/${mgId}`, data);
+                document.querySelector('.modal-overlay')?.remove();
+                showToast('保存成功', 'success');
+                loadMiniGames();
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        }
+
+        async function settleRewards(mgId) {
+            const confirmed = await showConfirm('结算奖励', '将为前三名发放积分奖励。确定继续？');
+            if (!confirmed) return;
+
+            try {
+                const result = await apiPost(`/api/mini-games/${mgId}/settle-rewards`);
+                if (result.awarded.length === 0) {
+                    showToast('没有需要结算的奖励', 'info');
+                } else {
+                    const msg = result.awarded.map(a => `第${a.rank}名 ${a.player_name} +${a.reward}分`).join('\n');
+                    showToast(`奖励已发放！\n${msg}`, 'success');
+                }
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        }
+
+        loadMiniGames();
+    </script>
+</body>
+</html>

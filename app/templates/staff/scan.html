@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>扫码工作台 - 躲猫猫大挑战</title>
+    <link rel="stylesheet" href="/static/css/common.css">
+    <style>
+        #qr-reader {
+            width: 100%;
+            max-width: 400px;
+            margin: 0 auto;
+        }
+        #qr-reader video {
+            width: 100%;
+            border-radius: 12px;
+        }
+        .scan-mode-toggle {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+        .scan-mode-btn {
+            flex: 1;
+            padding: 10px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            background: white;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            text-align: center;
+            transition: all 0.2s;
+        }
+        .scan-mode-btn.active {
+            border-color: #667eea;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="page-header">
+            <h1>📷 扫码工作台</h1>
+        </div>
+
+        <div class="card">
+            <div class="scan-mode-toggle">
+                <button class="scan-mode-btn active" onclick="switchMode('camera')">📷 摄像头扫码</button>
+                <button class="scan-mode-btn" onclick="switchMode('manual')">⌨️ 手动输入</button>
+            </div>
+
+            <div id="camera-mode">
+                <div id="qr-reader" style="margin-bottom: 12px;"></div>
+                <button class="btn btn-sm btn-danger" id="stop-camera-btn" onclick="stopCamera()" style="display: none;">停止扫码</button>
+            </div>
+
+            <div id="manual-mode" style="display: none;">
+                <div style="display: flex; gap: 8px;">
+                    <input type="text" id="qr-input" placeholder="输入身份码，如 HNS-XXXXXXXX" style="flex: 1;">
+                    <button class="btn btn-sm btn-primary" onclick="lookupPlayer()">查询</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="result"></div>
+
+        <div class="card">
+            <a href="/staff" class="btn btn-sm" style="background: #f0f0f0; color: #666; display: block; text-align: center; text-decoration: none;">← 返回控制台</a>
+        </div>
+    </div>
+
+    <script src="/static/js/common.js"></script>
+    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+    <script>
+        if (!getToken() || getRole() !== 'STAFF') {
+            window.location.href = '/staff/login';
+        }
+
+        let html5QrcodeScanner = null;
+        let isScanning = false;
+
+        function switchMode(mode) {
+            document.querySelectorAll('.scan-mode-btn').forEach(btn => btn.classList.remove('active'));
+
+            if (mode === 'camera') {
+                document.querySelector('.scan-mode-btn:first-child').classList.add('active');
+                document.getElementById('camera-mode').style.display = 'block';
+                document.getElementById('manual-mode').style.display = 'none';
+                startCamera();
+            } else {
+                document.querySelector('.scan-mode-btn:last-child').classList.add('active');
+                document.getElementById('camera-mode').style.display = 'none';
+                document.getElementById('manual-mode').style.display = 'block';
+                stopCamera();
+            }
+        }
+
+        async function startCamera() {
+            if (isScanning) return;
+
+            try {
+                html5QrcodeScanner = new Html5QrcodeScanner(
+                    "qr-reader",
+                    { fps: 10, qrbox: { width: 250, height: 250 } },
+                    false
+                );
+
+                html5QrcodeScanner.render(onScanSuccess, onScanError);
+                isScanning = true;
+                document.getElementById('stop-camera-btn').style.display = 'block';
+            } catch (err) {
+                console.error('Camera error:', err);
+                showToast('无法启动摄像头，请检查权限', 'error');
+                switchMode('manual');
+            }
+        }
+
+        function stopCamera() {
+            if (html5QrcodeScanner) {
+                html5QrcodeScanner.clear();
+                html5QrcodeScanner = null;
+            }
+            isScanning = false;
+            document.getElementById('stop-camera-btn').style.display = 'none';
+        }
+
+        function onScanSuccess(decodedText, decodedResult) {
+            // Stop scanning after successful scan
+            stopCamera();
+
+            // Process the scanned QR code
+            document.getElementById('qr-input').value = decodedText;
+            lookupPlayer(decodedText);
+        }
+
+        function onScanError(errorMessage) {
+            // Ignore scan errors (no QR code in view)
+        }
+
+        // Check for qr parameter from other pages
+        const urlParams = new URLSearchParams(window.location.search);
+        const qrParam = urlParams.get('qr');
+        if (qrParam) {
+            document.getElementById('qr-input').value = qrParam;
+            lookupPlayer(qrParam);
+        }
+
+        document.getElementById('qr-input').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') lookupPlayer();
+        });
+
+        async function lookupPlayer(qrToken) {
+            qrToken = qrToken || document.getElementById('qr-input').value.trim();
+            if (!qrToken) {
+                showToast('请输入或扫描身份码', 'warning');
+                return;
+            }
+
+            try {
+                const players = await apiGet(`/api/staff/players?search=${encodeURIComponent(qrToken)}`);
+                if (!players || players.length === 0) {
+                    document.getElementById('result').innerHTML =
+                        `<div class="card"><div style="text-align: center; color: #888; padding: 20px;">未找到该玩家</div></div>`;
+                    return;
+                }
+
+                const player = players.find(p => p.qr_token === qrToken) || players[0];
+                showPlayerResult(player);
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        }
+
+        function showPlayerResult(p) {
+            let actionBtns = '';
+
+            if (p.role === 'MOUSE' && p.status === 'DEAD') {
+                actionBtns = `
+                    <button class="btn btn-sm btn-success" onclick="startRevive('${p.qr_token}')">💊 发起复活</button>
+                `;
+            }
+
+            document.getElementById('result').innerHTML = `
+                <div class="card">
+                    <div style="display: flex; align-items: center; gap: 16px; margin-bottom: 16px;">
+                        <div style="font-size: 50px;">${p.role === 'CAT' ? '🐱' : p.role === 'MOUSE' ? '🐭' : '❓'}</div>
+                        <div>
+                            <div style="font-size: 20px; font-weight: 700;">${p.name}</div>
+                            <div style="font-size: 13px; color: #888;">${p.student_id}</div>
+                        </div>
+                    </div>
+                    <div class="list-item"><span style="color:#888;">角色</span><span>${getRoleBadge(p.role)}</span></div>
+                    <div class="list-item"><span style="color:#888;">状态</span><span>${getStatusBadge(p.status)}</span></div>
+                    <div class="list-item"><span style="color:#888;">队伍</span><span>${p.team_name || '未分配'}</span></div>
+                    <div class="list-item"><span style="color:#888;">积分</span><span style="font-weight:700;color:#667eea;">${p.total_score}</span></div>
+                    <div class="list-item"><span style="color:#888;">复活次数</span><span>${p.revive_count}</span></div>
+                    <div class="list-item"><span style="color:#888;">微信号</span><span>${p.wechat_id || '未填写'}</span></div>
+                    ${actionBtns ? `<div style="margin-top: 16px; display: flex; gap: 8px;">${actionBtns}</div>` : ''}
+                </div>
+            `;
+        }
+
+        async function startRevive(qrToken) {
+            window.location.href = `/staff/revive?qr=${encodeURIComponent(qrToken)}`;
+        }
+
+        // Auto-start camera on page load
+        startCamera();
+    </script>
+</body>
+</html>

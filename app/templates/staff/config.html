@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>游戏配置 - 躲猫猫大挑战</title>
+    <link rel="stylesheet" href="/static/css/common.css">
+    <style>
+        .config-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 0;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        .config-item:last-child {
+            border-bottom: none;
+        }
+        .config-label {
+            font-size: 14px;
+            color: #555;
+        }
+        .config-desc {
+            font-size: 12px;
+            color: #888;
+            margin-top: 2px;
+        }
+        .config-input {
+            width: 100px;
+            text-align: center;
+            padding: 8px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="page-header">
+            <h1>⚙️ 游戏配置</h1>
+        </div>
+
+        <div id="content">
+            <div class="loading">加载中</div>
+        </div>
+
+        <div class="card">
+            <button class="btn btn-primary btn-block" onclick="saveConfig()">💾 保存配置</button>
+        </div>
+
+        <div class="card">
+            <a href="/staff" class="btn btn-sm" style="background: #f0f0f0; color: #666; display: block; text-align: center; text-decoration: none;">← 返回控制台</a>
+        </div>
+    </div>
+
+    <script src="/static/js/common.js"></script>
+    <script>
+        if (!getToken() || getRole() !== 'STAFF') {
+            window.location.href = '/staff/login';
+        }
+
+        let currentConfig = {};
+
+        async function loadConfig() {
+            try {
+                currentConfig = await apiGet('/api/staff/config');
+                renderConfig();
+            } catch (err) {
+                document.getElementById('content').innerHTML =
+                    `<div class="card"><p style="color: red;">${err.message}</p></div>`;
+            }
+        }
+
+        function renderConfig() {
+            document.getElementById('content').innerHTML = `
+                <div class="card">
+                    <div class="card-title">🎯 抓捕设置</div>
+                    <div class="config-item">
+                        <div>
+                            <div class="config-label">每次抓捕积分</div>
+                            <div class="config-desc">猫成功抓捕鼠获得的积分</div>
+                        </div>
+                        <input type="number" class="config-input" id="capture_score" value="${currentConfig.capture_score || 10}" min="0">
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">⏱️ 生存积分设置</div>
+                    <div class="config-item">
+                        <div>
+                            <div class="config-label">积分间隔（秒）</div>
+                            <div class="config-desc">每累计生存多少秒获得积分</div>
+                        </div>
+                        <input type="number" class="config-input" id="survival_interval_seconds" value="${currentConfig.survival_interval_seconds || 300}" min="1">
+                    </div>
+                    <div class="config-item">
+                        <div>
+                            <div class="config-label">每档积分</div>
+                            <div class="config-desc">每个积分间隔获得的积分</div>
+                        </div>
+                        <input type="number" class="config-input" id="survival_interval_score" value="${currentConfig.survival_interval_score || 5}" min="0">
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">💊 复活设置</div>
+                    <div class="config-item">
+                        <div>
+                            <div class="config-label">最大复活次数</div>
+                            <div class="config-desc">每只鼠最多可复活的次数</div>
+                        </div>
+                        <input type="number" class="config-input" id="max_revive_count" value="${currentConfig.max_revive_count || 3}" min="0">
+                    </div>
+                    <div class="config-item">
+                        <div>
+                            <div class="config-label">保护时间（秒）</div>
+                            <div class="config-desc">复活后的保护时间</div>
+                        </div>
+                        <input type="number" class="config-input" id="revive_protect_seconds" value="${currentConfig.revive_protect_seconds || 120}" min="0">
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">🐱 猫鼠比例</div>
+                    <div class="config-item">
+                        <div>
+                            <div class="config-label">猫的比例</div>
+                            <div class="config-desc">猫占总人数的百分比</div>
+                        </div>
+                        <input type="number" class="config-input" id="cat_ratio" value="${Math.round((currentConfig.cat_ratio || 0.1) * 100)}" min="1" max="50">
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">🎮 小游戏默认奖励</div>
+                    <div class="config-item">
+                        <div>
+                            <div class="config-label">🥇 第一名</div>
+                        </div>
+                        <input type="number" class="config-input" id="reward_first" value="${currentConfig.default_mini_game_rewards?.first || 30}" min="0">
+                    </div>
+                    <div class="config-item">
+                        <div>
+                            <div class="config-label">🥈 第二名</div>
+                        </div>
+                        <input type="number" class="config-input" id="reward_second" value="${currentConfig.default_mini_game_rewards?.second || 20}" min="0">
+                    </div>
+                    <div class="config-item">
+                        <div>
+                            <div class="config-label">🥉 第三名</div>
+                        </div>
+                        <input type="number" class="config-input" id="reward_third" value="${currentConfig.default_mini_game_rewards?.third || 10}" min="0">
+                    </div>
+                </div>
+            `;
+        }
+
+        async function saveConfig() {
+            const config = {
+                capture_score: parseInt(document.getElementById('capture_score').value || '10'),
+                survival_interval_seconds: parseInt(document.getElementById('survival_interval_seconds').value || '300'),
+                survival_interval_score: parseInt(document.getElementById('survival_interval_score').value || '5'),
+                max_revive_count: parseInt(document.getElementById('max_revive_count').value || '3'),
+                revive_protect_seconds: parseInt(document.getElementById('revive_protect_seconds').value || '120'),
+                cat_ratio: parseFloat(document.getElementById('cat_ratio').value || '10') / 100,
+                default_mini_game_rewards: {
+                    first: parseInt(document.getElementById('reward_first').value || '30'),
+                    second: parseInt(document.getElementById('reward_second').value || '20'),
+                    third: parseInt(document.getElementById('reward_third').value || '10')
+                }
+            };
+
+            try {
+                const result = await apiPut('/api/staff/config', config);
+                showToast('配置保存成功', 'success');
+                currentConfig = result.config;
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        }
+
+        loadConfig();
+    </script>
+</body>
+</html>

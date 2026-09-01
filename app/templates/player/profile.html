@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>个人信息 - 躲猫猫大挑战</title>
+    <link rel="stylesheet" href="/static/css/common.css">
+</head>
+<body>
+    <div class="container">
+        <div class="page-header">
+            <h1>📝 个人信息</h1>
+        </div>
+
+        <div id="content">
+            <div class="loading">加载中</div>
+        </div>
+    </div>
+
+    <script src="/static/js/common.js"></script>
+    <script>
+        if (!getToken() || getRole() !== 'PLAYER') {
+            window.location.href = '/player/login';
+        }
+
+        let playerData = null;
+
+        async function loadProfile() {
+            try {
+                playerData = await apiGet('/api/players/me');
+                if (!playerData) return;
+                renderProfile(playerData);
+            } catch (err) {
+                document.getElementById('content').innerHTML =
+                    `<div class="card"><p style="color: red;">${err.message}</p></div>`;
+            }
+        }
+
+        function renderProfile(data) {
+            document.getElementById('content').innerHTML = `
+                <div class="card">
+                    <div class="card-title">基本信息</div>
+                    <div class="list-item">
+                        <span style="color: #888;">姓名</span>
+                        <span style="font-weight: 600;">${data.player_name || '-'}</span>
+                    </div>
+                    <div class="list-item">
+                        <span style="color: #888;">学号</span>
+                        <span style="font-weight: 600;">${data.student_id || '-'}</span>
+                    </div>
+                    <div class="list-item">
+                        <span style="color: #888;">微信号</span>
+                        <span style="font-weight: 600;">${data.wechat_id || '未填写'}</span>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">修改微信号</div>
+                    <div class="form-group">
+                        <label>微信号</label>
+                        <input type="text" id="wechat-id" value="${data.wechat_id || ''}" placeholder="请输入微信号（选填）">
+                    </div>
+                    <button class="btn btn-primary btn-sm" onclick="saveWechat()">保存</button>
+                </div>
+
+                <div class="card">
+                    <a href="/player" class="btn btn-sm" style="background: #f0f0f0; color: #666; display: block; text-align: center; text-decoration: none;">← 返回主页</a>
+                </div>
+            `;
+        }
+
+        async function saveWechat() {
+            const wechatId = document.getElementById('wechat-id').value.trim();
+            try {
+                await apiPut('/api/players/me/profile', { wechat_id: wechatId || null });
+                showToast('保存成功', 'success');
+                loadProfile();
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        }
+
+        loadProfile();
+    </script>
+</body>
+</html>

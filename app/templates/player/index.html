@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>我的主页 - 躲猫猫大挑战</title>
+    <link rel="stylesheet" href="/static/css/common.css">
+</head>
+<body>
+    <div class="container">
+        <div class="page-header">
+            <h1>🐱🐭 躲猫猫大挑战</h1>
+        </div>
+
+        <div class="nav-bar">
+            <a href="/player" class="nav-item active">🏠 主页</a>
+            <a href="/player/team" class="nav-item">👥 队伍</a>
+            <a href="/player/capture" class="nav-item">📷 扫码</a>
+            <a href="/player/ranking" class="nav-item">🏆 排行</a>
+        </div>
+
+        <div id="game-status-card"></div>
+
+        <div id="content">
+            <div class="loading">加载中</div>
+        </div>
+
+        <div class="card">
+            <button class="btn btn-sm" style="background: #f0f0f0; color: #666; width: 100%;" onclick="logout()">退出登录</button>
+        </div>
+    </div>
+
+    <script src="/static/js/common.js"></script>
+    <script>
+        if (!getToken() || getRole() !== 'PLAYER') {
+            window.location.href = '/player/login';
+        }
+
+        let timeTimer;
+
+        // 时间追踪系统
+        let gameStatus = null;
+        let accumulatedSeconds = 0;  // 累计的游戏时间（秒）
+        let sessionStartTime = null; // 当前运行会话的开始时间
+        let totalGameSeconds = 0;    // 最终的游戏总时间（已结束时使用）
+
+        // 同步时间 - 从服务器获取时间戳并计算
+        async function syncTime() {
+            try {
+                const data = await apiGet('/api/games/current');
+                if (!data) return;
+
+                gameStatus = data.status;
+
+                if (data.started_at && data.finished_at) {
+                    // 游戏已结束，直接计算总时间
+                    const startTime = new Date(data.started_at + (data.started_at.includes('Z') ? '' : 'Z'));
+                    const endTime = new Date(data.finished_at + (data.finished_at.includes('Z') ? '' : 'Z'));
+                    totalGameSeconds = Math.floor((endTime - startTime) / 1000);
+                    accumulatedSeconds = totalGameSeconds;
+                    sessionStartTime = null;
+                } else if (data.started_at) {
+                    // 游戏进行中或暂停
+                    const startTime = new Date(data.started_at + (data.started_at.includes('Z') ? '' : 'Z'));
+                    const now = Date.now();
+
+                    if (data.status === 'RUNNING') {
+                        // 正在运行：从开始时间到现在
+                        sessionStartTime = now;
+                        accumulatedSeconds = Math.floor((now - startTime.getTime()) / 1000);
+                    } else if (data.status === 'PAUSED') {
+                        // 已暂停：累计时间固定
+                        accumulatedSeconds = Math.floor((now - startTime.getTime()) / 1000);
+                        sessionStartTime = null;
+                    }
+                }
+
+                showToast('时间已同步', 'success');
+                updateTimerDisplay();
+            } catch (err) {
+                console.error('时间同步失败:', err);
+            }
+        }
+
+        // 本地计算并显示时间
+        function updateTimerDisplay() {
+            const timerEl = document.getElementById('game-timer');
+            if (!timerEl) return;
+
+            let elapsed;
+
+            if (gameStatus === 'FINISHED') {
+                // 游戏结束，显示总时间
+                elapsed = totalGameSeconds;
+            } else if (gameStatus === 'RUNNING' && sessionStartTime) {
+                // 游戏运行中，累计时间 + 当前会话时间
+                const currentSessionSeconds = Math.floor((Date.now() - sessionStartTime) / 1000);
+                elapsed = accumulatedSeconds + currentSessionSeconds;
+            } else if (gameStatus === 'PAUSED') {
+                // 游戏暂停，显示累计时间（不增加）
+                elapsed = accumulatedSeconds;
+            } else {
+                elapsed = accumulatedSeconds;
+            }
+
+            const minutes = Math.floor(elapsed / 60);
+            const seconds = elapsed % 60;
+            timerEl.textContent = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+        }
+
+        async function loadGameStatus() {
+            try {
+                const data = await apiGet('/api/games/current');
+                if (!data) {
+                    document.getElementById('game-status-card').innerHTML = '';
+                    return;
+                }
+
+                // 检测状态变化
+                const previousStatus = gameStatus;
+                gameStatus = data.status;
+
+                if (data.started_at) {
+                    const startTime = new Date(data.started_at + (data.started_at.includes('Z') ? '' : 'Z'));
+
+                    if (data.status === 'FINISHED' && data.finished_at) {
+                        // 游戏结束
+                        const endTime = new Date(data.finished_at + (data.finished_at.includes('Z') ? '' : 'Z'));
+                        totalGameSeconds = Math.floor((endTime - startTime) / 1000);
+                        accumulatedSeconds = totalGameSeconds;
+                        sessionStartTime = null;
+                    } else if (data.status === 'RUNNING' && !sessionStartTime) {
+                        // 首次加载或刷新，同步时间
+                        syncTime();
+                        return; // syncTime会调用renderGameStatus
+                    }
+                }
+
+                renderGameStatus(data);
+            } catch (err) {
+                document.getElementById('game-status-card').innerHTML = '';
+            }
+        }
+
+        function renderGameStatus(game) {
+            const statusMap = {
+                'PENDING': { text: '等待玩家加入', color: '#ffa502', icon: '⏳' },
+                'READY': { text: '准备就绪', color: '#2ed573', icon: '✅' },
+                'ROLE_ASSIGNED': { text: '身份已分配', color: '#667eea', icon: '🎭' },
+                'TEAM_ASSIGNED': { text: '队伍已分配', color: '#a55eea', icon: '📊' },
+                'RUNNING': { text: '游戏进行中', color: '#2ed573', icon: '🎮' },
+                'PAUSED': { text: '游戏已暂停', color: '#ff6b6b', icon: '⏸️' },
+                'FINISHING': { text: '结算中', color: '#ff6b6b', icon: '⏳' },
+                'FINISHED': { text: '已结束', color: '#ff6b6b', icon: '🏁' }
+            };
+
+            const status = statusMap[game.status] || { text: game.status, color: '#888', icon: '❓' };
+
+            let timeInfo = '';
+            if ((game.status === 'RUNNING' || game.status === 'PAUSED') && game.started_at) {
+                timeInfo = `
+                    <div style="margin-top: 8px;">
+                        <div id="game-timer" style="font-size: 28px; font-weight: 800; font-family: monospace;">--:--</div>
+                        <div style="font-size: 12px; opacity: 0.8; display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 4px;">
+                            <span>已进行</span>
+                            <button onclick="syncTime()" style="background: rgba(255,255,255,0.3); color: white; border: none; border-radius: 4px; padding: 2px 8px; font-size: 11px; cursor: pointer;">⟳ 同步</button>
+                        </div>
+                    </div>
+                `;
+            } else if (game.status === 'FINISHED' && totalGameSeconds > 0) {
+                const minutes = Math.floor(totalGameSeconds / 60);
+                const seconds = totalGameSeconds % 60;
+                timeInfo = `<div style="font-size: 16px; margin-top: 8px;">总时长: ${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}</div>`;
+            } else if (game.status === 'FINISHED') {
+                timeInfo = `<div style="font-size: 14px; margin-top: 8px;">🏁 游戏已结束</div>`;
+            } else if (game.status === 'PENDING' || game.status === 'READY') {
+                timeInfo = `<div style="font-size: 14px; margin-top: 8px;">等待工作人员开始游戏</div>`;
+            } else if (game.status === 'ROLE_ASSIGNED' || game.status === 'TEAM_ASSIGNED') {
+                timeInfo = `<div style="font-size: 14px; margin-top: 8px;">准备中，请等待...</div>`;
+            }
+
+            document.getElementById('game-status-card').innerHTML = `
+                <div class="card" style="background: linear-gradient(135deg, ${status.color}, ${status.color}dd); color: white;">
+                    <div style="text-align: center;">
+                        <div style="font-size: 18px; font-weight: 600;">${status.icon} ${status.text}</div>
+                        <div style="font-size: 14px; opacity: 0.9; margin-top: 4px;">${game.name}</div>
+                        ${timeInfo}
+                    </div>
+                </div>
+            `;
+        }
+
+        async function loadPlayerInfo() {
+            try {
+                const data = await apiGet('/api/players/me');
+                if (!data) return;
+
+                if (data.new_token) {
+                    setToken(data.new_token, 'PLAYER', data.player_id, data.id);
+                    showToast('游戏已更新，正在刷新...', 'info');
+                }
+
+                renderPlayerInfo(data);
+            } catch (err) {
+                document.getElementById('content').innerHTML =
+                    `<div class="card"><p style="color: red;">${err.message}</p></div>`;
+            }
+        }
+
+        function renderPlayerInfo(data) {
+            const roleDisplay = data.role === 'CAT' ? '🐱 猫' : data.role === 'MOUSE' ? '🐭 鼠' : '❓ 未分配';
+            const statusDisplay = getStatusBadge(data.status);
+            const teamDisplay = data.team_name || '待分配';
+
+            let protectInfo = '';
+            if (data.protect_until && data.role === 'MOUSE') {
+                const now = new Date();
+                const protectEnd = new Date(data.protect_until);
+                if (now < protectEnd) {
+                    const remaining = Math.ceil((protectEnd - now) / 1000);
+                    protectInfo = `
+                        <div class="card" style="background: linear-gradient(135deg, #74b9ff, #0984e3); color: white;">
+                            <div style="text-align: center;">
+                                <div style="font-size: 24px; margin-bottom: 8px;">🛡️ 复活保护中</div>
+                                <div style="font-size: 32px; font-weight: 800;" id="protect-timer">${formatTime(remaining)}</div>
+                                <div style="font-size: 13px; opacity: 0.8; margin-top: 4px;">保护结束后可再次被抓捕</div>
+                            </div>
+                        </div>
+                    `;
+                }
+            }
+
+            // 根据角色显示不同的统计信息
+            let statsHtml = '';
+            if (data.role === 'CAT') {
+                // 猫：显示积分和抓捕人数
+                statsHtml = `
+                    <div class="card">
+                        <div class="stats-grid">
+                            <div class="stat-box">
+                                <div class="stat-number">${data.total_score}</div>
+                                <div class="stat-label">总积分</div>
+                            </div>
+                            <div class="stat-box">
+                                <div class="stat-number" style="color: #ff6b6b;">${data.capture_count || 0}</div>
+                                <div class="stat-label">已抓捕</div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            } else if (data.role === 'MOUSE') {
+                // 鼠：显示积分、复活次数、生存信息
+                const survivalTime = formatTime(data.total_survival_seconds);
+                statsHtml = `
+                    <div class="card">
+                        <div class="stats-grid">
+                            <div class="stat-box">
+                                <div class="stat-number">${data.total_score}</div>
+                                <div class="stat-label">总积分</div>
+                            </div>
+                            <div class="stat-box">
+                                <div class="stat-number">${data.revive_count}</div>
+                                <div class="stat-label">复活次数</div>
+                            </div>
+                            <div class="stat-box">
+                                <div class="stat-number">${data.survival_round}</div>
+                                <div class="stat-label">生存轮次</div>
+                            </div>
+                            <div class="stat-box">
+                                <div class="stat-number" style="font-size: 18px;">${survivalTime}</div>
+                                <div class="stat-label">累计生存</div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            } else {
+                // 未分配角色
+                statsHtml = `
+                    <div class="card">
+                        <div style="text-align: center; padding: 20px; color: #888;">
+                            <p>等待身份分配...</p>
+                        </div>
+                    </div>
+                `;
+            }
+
+            document.getElementById('content').innerHTML = `
+                ${protectInfo}
+
+                <div class="card">
+                    <div style="text-align: center; padding: 10px 0;">
+                        <div style="font-size: 60px; margin-bottom: 8px;">${data.role === 'CAT' ? '🐱' : data.role === 'MOUSE' ? '🐭' : '❓'}</div>
+                        <div style="font-size: 20px; font-weight: 800; margin-bottom: 4px;">${roleDisplay}</div>
+                        <div>${statusDisplay}</div>
+                    </div>
+                </div>
+
+                ${statsHtml}
+
+                <div class="card">
+                    <div class="list-item">
+                        <span style="color: #888;">我的队伍</span>
+                        <span style="font-weight: 600;">${teamDisplay}</span>
+                    </div>
+                    <div class="list-item">
+                        <span style="color: #888;">我的姓名</span>
+                        <span style="font-weight: 600;">${data.player_name || '-'}</span>
+                    </div>
+                    <div class="list-item">
+                        <span style="color: #888;">学号</span>
+                        <span style="font-weight: 600;">${data.student_id || '-'}</span>
+                    </div>
+                </div>
+
+                ${data.role === 'MOUSE' ? `
+                <div class="card">
+                    <div class="card-title">📋 积分明细</div>
+                    <div id="score-list">加载中...</div>
+                </div>
+                ` : ''}
+
+                <div class="card">
+                    <a href="/player/profile" class="btn btn-sm" style="background: #f0f0f0; color: #666; display: block; text-align: center; text-decoration: none; margin-bottom: 8px;">📝 编辑个人信息</a>
+                    <a href="/player/history" class="btn btn-sm" style="background: #667eea; color: white; display: block; text-align: center; text-decoration: none;">📜 我的游戏记录</a>
+                </div>
+            `;
+
+            // 加载积分明细（仅鼠）
+            if (data.role === 'MOUSE') {
+                loadScoreTransactions();
+            }
+        }
+
+        async function loadScoreTransactions() {
+            try {
+                const data = await apiGet('/api/players/me/score-transactions');
+                if (!data) return;
+
+                const el = document.getElementById('score-list');
+                if (!el) return;
+
+                if (data.length === 0) {
+                    el.innerHTML = '<div style="text-align: center; color: #888; padding: 10px;">暂无积分记录</div>';
+                    return;
+                }
+
+                el.innerHTML = data.map(tx => `
+                    <div class="score-item">
+                        <div>
+                            <div style="font-size: 13px;">${tx.reason}</div>
+                            <div style="font-size: 11px; color: #aaa;">${formatDateTime(tx.created_at)}</div>
+                        </div>
+                        <div class="${tx.score >= 0 ? 'score-positive' : 'score-negative'}">
+                            ${tx.score >= 0 ? '+' : ''}${tx.score}
+                        </div>
+                    </div>
+                `).join('');
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        function logout() {
+            clearToken();
+            window.location.href = '/player/login';
+        }
+
+        // 初始化 - 加载一次数据，获取时间戳
+        loadGameStatus();
+        loadPlayerInfo();
+
+        // 每秒更新本地时间显示
+        timeTimer = setInterval(updateTimerDisplay, 1000);
+
+        // 不再定时请求后端，只在用户操作时刷新
+        // 用户可以通过点击「⟳ 同步」按钮手动同步时间
+    </script>
+</body>
+</html>

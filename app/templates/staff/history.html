@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>历史游戏记录 - 躲猫猫大挑战</title>
+    <link rel="stylesheet" href="/static/css/common.css">
+</head>
+<body>
+    <div class="container">
+        <div class="page-header">
+            <h1>📜 历史游戏记录</h1>
+        </div>
+
+        <div id="content">
+            <div class="loading">加载中</div>
+        </div>
+
+        <div class="card">
+            <a href="/staff" class="btn btn-sm" style="background: #f0f0f0; color: #666; display: block; text-align: center; text-decoration: none;">← 返回控制台</a>
+        </div>
+    </div>
+
+    <script src="/static/js/common.js"></script>
+    <script>
+        if (!getToken() || getRole() !== 'STAFF') {
+            window.location.href = '/staff/login';
+        }
+
+        async function loadHistory() {
+            try {
+                const data = await apiGet('/api/staff/games/history');
+                if (!data) return;
+                renderHistory(data);
+            } catch (err) {
+                document.getElementById('content').innerHTML =
+                    `<div class="card"><p style="color: red;">${err.message}</p></div>`;
+            }
+        }
+
+        function renderHistory(games) {
+            if (games.length === 0) {
+                document.getElementById('content').innerHTML =
+                    `<div class="card"><div style="text-align: center; padding: 40px; color: #888;">
+                        <div style="font-size: 50px; margin-bottom: 12px;">📜</div>
+                        <p>暂无历史游戏记录</p>
+                    </div></div>`;
+                return;
+            }
+
+            let html = '';
+            games.forEach(game => {
+                const statusMap = {
+                    'PENDING': { text: '等待中', color: '#ffa502' },
+                    'RUNNING': { text: '进行中', color: '#2ed573' },
+                    'FINISHED': { text: '已结束', color: '#888' }
+                };
+                const status = statusMap[game.status] || { text: game.status, color: '#888' };
+
+                html += `
+                    <div class="card">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                            <div style="font-size: 18px; font-weight: 700;">${game.name}</div>
+                            <span class="badge" style="background: ${status.color}; color: white;">${status.text}</span>
+                        </div>
+                        <div style="font-size: 13px; color: #888;">
+                            <div>创建时间: ${formatDateTime(game.created_at)}</div>
+                            ${game.started_at ? `<div>开始时间: ${formatDateTime(game.started_at)}</div>` : ''}
+                            ${game.finished_at ? `<div>结束时间: ${formatDateTime(game.finished_at)}</div>` : ''}
+                        </div>
+                        <div style="margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap;">
+                            <span class="badge badge-cat">🐱 ${game.cats} 猫</span>
+                            <span class="badge badge-mouse">🐭 ${game.mice} 鼠</span>
+                            <span class="badge badge-alive">🟢 ${game.alive} 存活</span>
+                            <span class="badge badge-dead">🔴 ${game.dead} 阵亡</span>
+                        </div>
+                        ${game.status === 'FINISHED' ? `
+                        <div style="margin-top: 12px;">
+                            <button class="btn btn-sm" style="background: #667eea; color: white;" onclick="viewGameDetail(${game.id})">查看详情</button>
+                        </div>
+                        ` : ''}
+                    </div>
+                `;
+            });
+
+            document.getElementById('content').innerHTML = html;
+        }
+
+        async function viewGameDetail(gameId) {
+            try {
+                const data = await apiGet(`/api/staff/games/${gameId}/detail`);
+                if (!data) return;
+
+                const modal = document.createElement('div');
+                modal.className = 'modal-overlay';
+                modal.onclick = function(e) { if (e.target === this) this.remove(); };
+                modal.innerHTML = `
+                    <div class="modal" style="max-width: 500px; max-height: 80vh; overflow-y: auto;">
+                        <div class="modal-title">${data.game.name} - 游戏详情</div>
+
+                        <div style="margin-bottom: 16px;">
+                            <div style="font-weight: 600; margin-bottom: 8px;">📊 统计数据</div>
+                            <div class="list-item"><span style="color:#888;">总人数</span><span>${data.stats.total}</span></div>
+                            <div class="list-item"><span style="color:#888;">猫</span><span>🐱 ${data.stats.cats}</span></div>
+                            <div class="list-item"><span style="color:#888;">鼠</span><span>🐭 ${data.stats.mice}</span></div>
+                            <div class="list-item"><span style="color:#888;">总抓捕</span><span>${data.stats.captures} 次</span></div>
+                            <div class="list-item"><span style="color:#888;">总复活</span><span>${data.stats.revives} 次</span></div>
+                        </div>
+
+                        <div style="margin-bottom: 16px;">
+                            <div style="font-weight: 600; margin-bottom: 8px;">🏆 个人排行榜 TOP 10</div>
+                            ${data.top_players.length === 0 ? '<div style="color: #888; text-align: center;">暂无数据</div>' :
+                            data.top_players.map((p, i) => `
+                                <div class="list-item">
+                                    <span>${i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : (i+1)} ${p.name} ${p.role === 'CAT' ? '🐱' : '🐭'}</span>
+                                    <span style="font-weight: 600; color: #667eea;">${p.score}分</span>
+                                </div>
+                            `).join('')}
+                        </div>
+
+                        <div class="modal-actions">
+                            <button class="btn btn-sm" style="background: #f0f0f0; color: #666;" onclick="this.closest('.modal-overlay').remove()">关闭</button>
+                        </div>
+                    </div>
+                `;
+                document.body.appendChild(modal);
+            } catch (err) {
+                showToast('获取详情失败', 'error');
+            }
+        }
+
+        loadHistory();
+    </script>
+</body>
+</html>

@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>排行榜 - 躲猫猫大挑战</title>
+    <link rel="stylesheet" href="/static/css/common.css">
+</head>
+<body>
+    <div class="container">
+        <div class="page-header">
+            <h1>🏆 排行榜</h1>
+        </div>
+
+        <div class="card">
+            <div class="tab-group">
+                <button class="tab-item active" onclick="switchTab('player')">个人排行</button>
+                <button class="tab-item" onclick="switchTab('team')">团队排行</button>
+            </div>
+            <div class="tab-group">
+                <button class="tab-item active" id="filter-all" onclick="filterRole(null)">全部</button>
+                <button class="tab-item" id="filter-cat" onclick="filterRole('CAT')">🐱 猫</button>
+                <button class="tab-item" id="filter-mouse" onclick="filterRole('MOUSE')">🐭 鼠</button>
+            </div>
+        </div>
+
+        <div id="content">
+            <div class="loading">加载中</div>
+        </div>
+
+        <div class="card">
+            <a href="/staff" class="btn btn-sm" style="background: #f0f0f0; color: #666; display: block; text-align: center; text-decoration: none;">← 返回控制台</a>
+        </div>
+    </div>
+
+    <script src="/static/js/common.js"></script>
+    <script>
+        if (!getToken() || getRole() !== 'STAFF') {
+            window.location.href = '/staff/login';
+        }
+
+        let currentTab = 'player';
+        let currentRole = null;
+        let refreshTimer;
+
+        function switchTab(tab) {
+            currentTab = tab;
+            document.querySelectorAll('.tab-group:first-of-type .tab-item').forEach((el, i) => {
+                el.classList.toggle('active', (i === 0 && tab === 'player') || (i === 1 && tab === 'team'));
+            });
+            loadRanking();
+        }
+
+        function filterRole(role) {
+            currentRole = role;
+            document.getElementById('filter-all').classList.toggle('active', role === null);
+            document.getElementById('filter-cat').classList.toggle('active', role === 'CAT');
+            document.getElementById('filter-mouse').classList.toggle('active', role === 'MOUSE');
+            loadRanking();
+        }
+
+        async function loadRanking() {
+            try {
+                if (currentTab === 'player') {
+                    const url = '/api/rankings/staff/players' + (currentRole ? `?role=${currentRole}` : '');
+                    const data = await apiGet(url);
+                    if (data) renderPlayerRanking(data);
+                } else {
+                    const url = '/api/rankings/staff/teams' + (currentRole ? `?role=${currentRole}` : '');
+                    const data = await apiGet(url);
+                    if (data) renderTeamRanking(data);
+                }
+            } catch (err) {
+                document.getElementById('content').innerHTML =
+                    `<div class="card"><p style="color: red;">${err.message}</p></div>`;
+            }
+        }
+
+        function renderPlayerRanking(data) {
+            let html = '<div class="card">';
+            if (data.players.length === 0) {
+                html += '<div style="text-align: center; padding: 20px; color: #888;">暂无数据</div>';
+            } else {
+                html += '<div class="table-wrapper"><table>';
+                html += '<tr><th>排名</th><th>姓名</th><th>角色</th><th>队伍</th><th>总分</th><th>详情</th></tr>';
+                data.players.forEach(p => {
+                    const medal = p.rank === 1 ? '🥇' : p.rank === 2 ? '🥈' : p.rank === 3 ? '🥉' : p.rank;
+                    html += `<tr>
+                        <td style="font-weight: 700;">${medal}</td>
+                        <td>${p.name}</td>
+                        <td>${getRoleBadge(p.role)}</td>
+                        <td style="font-size: 12px;">${p.team_name || '-'}</td>
+                        <td style="font-weight: 700; color: #667eea;">${p.total_score}</td>
+                        <td><button class="btn btn-sm" style="padding: 4px 8px; font-size: 11px; background: #f0f0f0; color: #666;" onclick="viewDetail(${p.game_player_id})">明细</button></td>
+                    </tr>`;
+                });
+                html += '</table></div>';
+            }
+            html += '</div>';
+
+            document.getElementById('content').innerHTML = html;
+        }
+
+        function renderTeamRanking(data) {
+            let html = '<div class="card">';
+            if (data.teams.length === 0) {
+                html += '<div style="text-align: center; padding: 20px; color: #888;">暂无数据</div>';
+            } else {
+                data.teams.forEach(t => {
+                    const rankClass = t.rank <= 3 ? `rank-${t.rank}` : 'rank-other';
+                    const medal = t.rank === 1 ? '🥇' : t.rank === 2 ? '🥈' : t.rank === 3 ? '🥉' : t.rank;
+                    html += `
+                        <div class="rank-item">
+                            <div class="rank-number ${rankClass}">${medal}</div>
+                            <div class="rank-info">
+                                <div class="rank-name">${t.team_name} ${t.role === 'CAT' ? '🐱' : '🐭'}</div>
+                                <div class="rank-team">${t.member_count} 人</div>
+                            </div>
+                            <div class="rank-score">${t.total_score}</div>
+                        </div>
+                    `;
+                });
+            }
+            html += '</div>';
+
+            document.getElementById('content').innerHTML = html;
+        }
+
+        async function viewDetail(gamePlayerId) {
+            try {
+                const data = await apiGet(`/api/staff/players/${gamePlayerId}`);
+                if (!data) return;
+
+                const overlay = document.createElement('div');
+                overlay.className = 'modal-overlay';
+                overlay.innerHTML = `
+                    <div class="modal" style="max-width: 500px;">
+                        <div class="modal-title">${data.name} ${getRoleBadge(data.role)}</div>
+                        <div class="list-item"><span style="color:#888;">队伍</span><span>${data.team_name || '未分配'}</span></div>
+                        <div class="list-item"><span style="color:#888;">状态</span><span>${getStatusBadge(data.status)}</span></div>
+
+                        <div style="margin-top: 16px;">
+                            <div style="font-weight: 600; margin-bottom: 8px;">积分构成</div>
+                            <div class="list-item"><span style="color:#888;">🐱 抓捕积分</span><span>${data.score_breakdown.CAPTURE}</span></div>
+                            <div class="list-item"><span style="color:#888;">🎮 小游戏积分</span><span>${data.score_breakdown.MINIGAME}</span></div>
+                            <div class="list-item"><span style="color:#888;">🐭 生存积分</span><span>${data.score_breakdown.SURVIVAL}</span></div>
+                            <div class="list-item"><span style="font-weight:700;">总积分</span><span style="font-weight:700;color:#667eea;">${data.score_breakdown.total}</span></div>
+                        </div>
+
+                        <div style="margin-top: 16px;">
+                            <div style="font-weight: 600; margin-bottom: 8px;">积分流水</div>
+                            ${data.score_transactions.length === 0 ? '<div style="color: #888; font-size: 13px;">暂无记录</div>' :
+                            data.score_transactions.slice(0, 10).map(tx => `
+                                <div class="score-item">
+                                    <div>
+                                        <div style="font-size: 13px;">${tx.reason}</div>
+                                        <div style="font-size: 11px; color: #aaa;">${formatDateTime(tx.created_at)}</div>
+                                    </div>
+                                    <div class="${tx.score >= 0 ? 'score-positive' : 'score-negative'}">
+                                        ${tx.score >= 0 ? '+' : ''}${tx.score}
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+
+                        <div class="modal-actions">
+                            <button class="btn btn-sm" style="background: #f0f0f0; color: #666;" onclick="this.closest('.modal-overlay').remove()">关闭</button>
+                        </div>
+                    </div>
+                `;
+                document.body.appendChild(overlay);
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        }
+
+        loadRanking();
+        refreshTimer = setInterval(loadRanking, 5000);
+    </script>
+</body>
+</html>

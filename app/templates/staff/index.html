@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>工作人员控制台 - 躲猫猫大挑战</title>
+    <link rel="stylesheet" href="/static/css/common.css">
+    <style>
+        .control-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+        }
+        .control-btn {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+            border-radius: 14px;
+            text-decoration: none;
+            color: white;
+            font-weight: 600;
+            font-size: 14px;
+            transition: all 0.2s;
+            text-align: center;
+            border: none;
+            cursor: pointer;
+        }
+        .control-btn:active {
+            transform: scale(0.96);
+        }
+        .control-btn .icon {
+            font-size: 28px;
+            margin-bottom: 6px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="page-header">
+            <h1>🔧 工作人员控制台</h1>
+        </div>
+
+        <div id="game-status-card">
+            <div class="loading">加载中</div>
+        </div>
+
+        <div class="card">
+            <div class="card-title">游戏控制</div>
+            <div class="control-grid" id="game-controls">
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-title">游戏设置</div>
+            <div class="control-grid">
+                <a href="/staff/roles" class="control-btn" style="background: linear-gradient(135deg, #fd79a8, #e84393);">
+                    <span class="icon">🎭</span>身份分配
+                </a>
+                <a href="/staff/teams" class="control-btn" style="background: linear-gradient(135deg, #00b894, #00a381);">
+                    <span class="icon">📊</span>分队管理
+                </a>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-title">管理功能</div>
+            <div class="control-grid">
+                <a href="/staff/players" class="control-btn" style="background: linear-gradient(135deg, #667eea, #764ba2);">
+                    <span class="icon">👥</span>玩家管理
+                </a>
+                <a href="/staff/scan" class="control-btn" style="background: linear-gradient(135deg, #2ed573, #17a558);">
+                    <span class="icon">📷</span>扫码工作台
+                </a>
+                <a href="/staff/revive" class="control-btn" style="background: linear-gradient(135deg, #ffa502, #e67e22);">
+                    <span class="icon">💊</span>复活管理
+                </a>
+                <a href="/staff/mini-games" class="control-btn" style="background: linear-gradient(135deg, #ff6b6b, #ee5a24);">
+                    <span class="icon">🎮</span>小游戏管理
+                </a>
+                <a href="/staff/ranking" class="control-btn" style="background: linear-gradient(135deg, #a55eea, #8854d0);">
+                    <span class="icon">🏆</span>排行榜
+                </a>
+                <a href="/staff/history" class="control-btn" style="background: linear-gradient(135deg, #636e72, #2d3436);">
+                    <span class="icon">📜</span>历史记录
+                </a>
+                <a href="/staff/teammates" class="control-btn" style="background: linear-gradient(135deg, #00b894, #00a381);">
+                    <span class="icon">👥</span>队友查询
+                </a>
+                <a href="/staff/config" class="control-btn" style="background: linear-gradient(135deg, #fdcb6e, #e17055);">
+                    <span class="icon">⚙️</span>游戏配置
+                </a>
+            </div>
+        </div>
+
+        <div class="card">
+            <a href="/staff/settings" class="btn btn-sm" style="background: #667eea; color: white; display: block; text-align: center; text-decoration: none; margin-bottom: 8px;">⚙️ 个人设置</a>
+            <button class="btn btn-sm btn-danger" style="width: 100%; margin-bottom: 8px;" onclick="resetGame()">🔄 重置游戏（删除所有数据）</button>
+            <button class="btn btn-sm" style="background: #f0f0f0; color: #666; width: 100%;" onclick="logout()">退出登录</button>
+        </div>
+    </div>
+
+    <!-- 密码弹窗 -->
+    <div id="password-modal" class="modal-overlay" style="display: none;">
+        <div class="modal">
+            <div class="modal-title" id="password-modal-title">请输入密码</div>
+            <div class="form-group">
+                <label>操作密码</label>
+                <input type="password" id="operation-password" placeholder="请输入密码">
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-sm" style="background: #f0f0f0; color: #666;" onclick="closePasswordModal()">取消</button>
+                <button class="btn btn-sm btn-primary" id="password-confirm-btn">确认</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/common.js"></script>
+    <script>
+        if (!getToken() || getRole() !== 'STAFF') {
+            window.location.href = '/staff/login';
+        }
+
+        const GAME_PASSWORD = '203060';
+        let gameData = null;
+        let pendingAction = null;
+
+        // 时间追踪系统
+        let gameStatus = null;
+        let accumulatedSeconds = 0;  // 累计的游戏时间（秒）
+        let sessionStartTime = null; // 当前运行会话的开始时间
+        let totalGameSeconds = 0;    // 最终的游戏总时间（已结束时使用）
+
+        // 同步时间 - 从服务器获取时间戳并计算
+        async function syncTime() {
+            try {
+                const data = await apiGet('/api/games/current');
+                if (!data) return;
+
+                gameStatus = data.status;
+
+                if (data.started_at && data.finished_at) {
+                    // 游戏已结束，直接计算总时间
+                    const startTime = new Date(data.started_at + (data.started_at.includes('Z') ? '' : 'Z'));
+                    const endTime = new Date(data.finished_at + (data.finished_at.includes('Z') ? '' : 'Z'));
+                    totalGameSeconds = Math.floor((endTime - startTime) / 1000);
+                    accumulatedSeconds = totalGameSeconds;
+                    sessionStartTime = null;
+                } else if (data.started_at) {
+                    // 游戏进行中或暂停
+                    const startTime = new Date(data.started_at + (data.started_at.includes('Z') ? '' : 'Z'));
+                    const now = Date.now();
+
+                    if (data.status === 'RUNNING') {
+                        // 正在运行：从开始时间到现在减去暂停时间
+                        // 简化处理：假设暂停时间已经通过pause_at/resume_at记录
+                        // 这里我们使用从开始到现在的总时间
+                        sessionStartTime = now;
+                        accumulatedSeconds = Math.floor((now - startTime.getTime()) / 1000);
+                    } else if (data.status === 'PAUSED') {
+                        // 已暂停：累计时间固定
+                        accumulatedSeconds = Math.floor((now - startTime.getTime()) / 1000);
+                        sessionStartTime = null;
+                    }
+                }
+
+                showToast('时间已同步', 'success');
+                updateTimerDisplay();
+            } catch (err) {
+                console.error('时间同步失败:', err);
+            }
+        }
+
+        // 本地计算并显示时间
+        function updateTimerDisplay() {
+            const timerEl = document.getElementById('game-timer');
+            if (!timerEl) return;
+
+            let elapsed;
+
+            if (gameStatus === 'FINISHED') {
+                // 游戏结束，显示总时间
+                elapsed = totalGameSeconds;
+            } else if (gameStatus === 'RUNNING' && sessionStartTime) {
+                // 游戏运行中，累计时间 + 当前会话时间
+                const currentSessionSeconds = Math.floor((Date.now() - sessionStartTime) / 1000);
+                elapsed = accumulatedSeconds + currentSessionSeconds;
+            } else if (gameStatus === 'PAUSED') {
+                // 游戏暂停，显示累计时间（不增加）
+                elapsed = accumulatedSeconds;
+            } else {
+                elapsed = accumulatedSeconds;
+            }
+
+            const hours = Math.floor(elapsed / 3600);
+            const minutes = Math.floor((elapsed % 3600) / 60);
+            const seconds = elapsed % 60;
+            timerEl.textContent = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+        }
+
+        // 暂停时冻结时间
+        function onGamePaused() {
+            // 计算当前累计时间
+            if (sessionStartTime) {
+                const currentSessionSeconds = Math.floor((Date.now() - sessionStartTime) / 1000);
+                accumulatedSeconds += currentSessionSeconds;
+                sessionStartTime = null;
+            }
+            gameStatus = 'PAUSED';
+            updateTimerDisplay();
+        }
+
+        // 继续时恢复计时
+        function onGameResumed() {
+            gameStatus = 'RUNNING';
+            sessionStartTime = Date.now();
+            updateTimerDisplay();
+        }
+
+        async function loadOverview() {
+            try {
+                const data = await apiGet('/api/staff/games/current/overview');
+                if (!data) {
+                    document.getElementById('game-status-card').innerHTML = `
+                        <div class="card">
+                            <div style="text-align: center; padding: 20px;">
+                                <div style="font-size: 40px; margin-bottom: 12px;">🎮</div>
+                                <p style="color: #888;">暂无游戏</p>
+                                <button class="btn btn-primary btn-sm" style="margin-top: 12px;" onclick="createGame()">创建新游戏</button>
+                            </div>
+                        </div>
+                    `;
+                    document.getElementById('game-controls').innerHTML = '';
+                    return;
+                }
+
+                gameData = data;
+                const game = data.game;
+                const stats = data.statistics;
+
+                // 检测状态变化并更新时间追踪
+                const previousStatus = gameStatus;
+                gameStatus = game.status;
+
+                if (game.started_at) {
+                    const startTime = new Date(game.started_at + (game.started_at.includes('Z') ? '' : 'Z'));
+
+                    if (game.status === 'FINISHED' && game.finished_at) {
+                        // 游戏结束，计算总时间
+                        const endTime = new Date(game.finished_at + (game.finished_at.includes('Z') ? '' : 'Z'));
+                        totalGameSeconds = Math.floor((endTime - startTime) / 1000);
+                        accumulatedSeconds = totalGameSeconds;
+                        sessionStartTime = null;
+                    } else if (game.status === 'PAUSED' && previousStatus !== 'PAUSED') {
+                        // 刚刚暂停，冻结时间
+                        onGamePaused();
+                    } else if (game.status === 'RUNNING' && previousStatus === 'PAUSED') {
+                        // 刚刚继续，恢复计时
+                        onGameResumed();
+                    } else if (game.status === 'RUNNING' && !sessionStartTime) {
+                        // 首次加载或刷新，同步时间
+                        syncTime();
+                    }
+                }
+
+                const statusMap = {
+                    'PENDING': { text: '等待玩家', color: '#ffa502', icon: '⏳' },
+                    'READY': { text: '准备就绪', color: '#2ed573', icon: '✅' },
+                    'ROLE_ASSIGNED': { text: '身份已分配', color: '#667eea', icon: '🎭' },
+                    'TEAM_ASSIGNED': { text: '队伍已分配', color: '#a55eea', icon: '📊' },
+                    'RUNNING': { text: '游戏进行中', color: '#2ed573', icon: '🎮' },
+                    'PAUSED': { text: '游戏已暂停', color: '#ff6b6b', icon: '⏸️' },
+                    'FINISHING': { text: '结算中', color: '#ff6b6b', icon: '⏳' },
+                    'FINISHED': { text: '已结束', color: '#ff6b6b', icon: '🏁' }
+                };
+
+                const status = statusMap[game.status] || { text: game.status, color: '#888', icon: '❓' };
+
+                // 时间显示区域
+                let timeDisplay = '';
+                if (game.started_at && (game.status === 'RUNNING' || game.status === 'PAUSED')) {
+                    timeDisplay = `
+                        <div style="margin-top: 8px;">
+                            <div id="game-timer" style="font-size: 28px; font-weight: 800; font-family: monospace; color: ${status.color};">--:--:--</div>
+                            <div style="font-size: 12px; color: #888; display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 4px;">
+                                <span>游戏时长</span>
+                                <button onclick="syncTime()" style="background: #667eea; color: white; border: none; border-radius: 4px; padding: 2px 8px; font-size: 11px; cursor: pointer;">⟳ 同步</button>
+                            </div>
+                        </div>
+                    `;
+                } else if (game.status === 'FINISHED' && totalGameSeconds > 0) {
+                    const hours = Math.floor(totalGameSeconds / 3600);
+                    const minutes = Math.floor((totalGameSeconds % 3600) / 60);
+                    const seconds = totalGameSeconds % 60;
+                    timeDisplay = `
+                        <div style="margin-top: 8px;">
+                            <div style="font-size: 20px; font-weight: 700; color: #888;">
+                                总时长: ${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}
+                            </div>
+                        </div>
+                    `;
+                }
+
+                document.getElementById('game-status-card').innerHTML = `
+                    <div class="card">
+                        <div style="text-align: center; margin-bottom: 16px;">
+                            <div style="font-size: 18px; font-weight: 700;">${game.name}</div>
+                            <div style="display: inline-block; padding: 4px 12px; border-radius: 20px; background: ${status.color}; color: white; font-size: 13px; font-weight: 600; margin-top: 6px;">${status.icon} ${status.text}</div>
+                            ${timeDisplay}
+                        </div>
+                        <div class="stats-grid">
+                            <div class="stat-box">
+                                <div class="stat-number">${stats.total}</div>
+                                <div class="stat-label">总人数</div>
+                            </div>
+                            <div class="stat-box">
+                                <div class="stat-number" style="color: #2ed573;">${stats.online}</div>
+                                <div class="stat-label">在线</div>
+                            </div>
+                            <div class="stat-box">
+                                <div class="stat-number" style="color: #ffeaa7;">🐱 ${stats.cats}</div>
+                                <div class="stat-label">猫</div>
+                            </div>
+                            <div class="stat-box">
+                                <div class="stat-number" style="color: #74b9ff;">🐭 ${stats.mice}</div>
+                                <div class="stat-label">鼠</div>
+                            </div>
+                        </div>
+                        ${game.status === 'RUNNING' || game.status === 'PAUSED' ? `
+                        <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #f0f0f0;">
+                            <div class="stats-grid">
+                                <div class="stat-box">
+                                    <div class="stat-number" style="color: #ff6b6b;">${stats.dead_mice || 0}</div>
+                                    <div class="stat-label">已阵亡</div>
+                                </div>
+                                <div class="stat-box">
+                                    <div class="stat-number" style="color: #ffa502;">${stats.total_captures || 0}</div>
+                                    <div class="stat-label">已抓捕</div>
+                                </div>
+                                <div class="stat-box">
+                                    <div class="stat-number" style="color: #2ed573;">${stats.alive_mice || 0}</div>
+                                    <div class="stat-label">存活鼠</div>
+                                </div>
+                                <div class="stat-box">
+                                    <div class="stat-number" style="color: #a55eea;">${stats.total_revives || 0}</div>
+                                    <div class="stat-label">已复活</div>
+                                </div>
+                            </div>
+                        </div>
+                        ` : ''}
+                    </div>
+                `;
+
+                renderGameControls(game.status);
+
+            } catch (err) {
+                document.getElementById('game-status-card').innerHTML = `
+                    <div class="card">
+                        <div style="text-align: center; padding: 20px;">
+                            <div style="font-size: 40px; margin-bottom: 12px;">🎮</div>
+                            <p style="color: #888;">暂无游戏</p>
+                            <button class="btn btn-primary btn-sm" style="margin-top: 12px;" onclick="createGame()">创建新游戏</button>
+                        </div>
+                    </div>
+                `;
+                document.getElementById('game-controls').innerHTML = '';
+            }
+        }
+
+        function renderGameControls(status) {
+            const controls = document.getElementById('game-controls');
+            let html = '';
+
+            // 开始游戏
+            if (status === 'TEAM_ASSIGNED') {
+                html += `<button class="control-btn" style="background: linear-gradient(135deg, #2ed573, #17a558);" onclick="startGame()"><span class="icon">▶️</span>开始游戏</button>`;
+            }
+
+            // 游戏进行中 - 暂停按钮
+            if (status === 'RUNNING') {
+                html += `<button class="control-btn" style="background: linear-gradient(135deg, #ffa502, #e67e22);" onclick="pauseGame()"><span class="icon">⏸️</span>暂停游戏</button>`;
+            }
+
+            // 游戏暂停中 - 继续和结算按钮
+            if (status === 'PAUSED') {
+                html += `<button class="control-btn" style="background: linear-gradient(135deg, #2ed573, #17a558);" onclick="resumeGame()"><span class="icon">▶️</span>继续游戏</button>`;
+                html += `<button class="control-btn" style="background: linear-gradient(135deg, #ff6b6b, #ee5a24);" onclick="settleGame()"><span class="icon">🏁</span>结算游戏</button>`;
+            }
+
+            // 等待状态提示
+            if (status === 'PENDING' || status === 'READY') {
+                html += `<div style="grid-column: span 2; text-align: center; color: #888; padding: 12px;">请先完成 <a href="/staff/roles" style="color: #667eea;">身份分配</a> 和 <a href="/staff/teams" style="color: #667eea;">分队管理</a></div>`;
+            }
+
+            if (status === 'ROLE_ASSIGNED') {
+                html += `<div style="grid-column: span 2; text-align: center; color: #888; padding: 12px;">请先完成 <a href="/staff/teams" style="color: #667eea;">分队管理</a></div>`;
+            }
+
+            controls.innerHTML = html;
+        }
+
+        // 密码验证弹窗
+        function showPasswordModal(title, callback) {
+            pendingAction = callback;
+            document.getElementById('password-modal-title').textContent = title;
+            document.getElementById('operation-password').value = '';
+            document.getElementById('password-modal').style.display = 'flex';
+            document.getElementById('operation-password').focus();
+
+            // 移除旧的事件监听器
+            const confirmBtn = document.getElementById('password-confirm-btn');
+            const passwordInput = document.getElementById('operation-password');
+
+            // 创建新的按钮
+            const newBtn = confirmBtn.cloneNode(true);
+            confirmBtn.parentNode.replaceChild(newBtn, confirmBtn);
+
+            newBtn.onclick = function() {
+                const password = passwordInput.value;
+                if (password === GAME_PASSWORD) {
+                    document.getElementById('password-modal').style.display = 'none';
+                    if (pendingAction) {
+                        const action = pendingAction;
+                        pendingAction = null;
+                        action();
+                    }
+                } else {
+                    showToast('密码错误', 'error');
+                }
+            };
+
+            passwordInput.onkeydown = function(e) {
+                if (e.key === 'Enter') {
+                    newBtn.click();
+                }
+            };
+        }
+
+        async function createGame() {
+            const name = prompt('请输入游戏名称：', '2026级新生躲猫猫大挑战');
+            if (!name) return;
+
+            try {
+                await apiPost('/api/staff/games', { name });
+                showToast('游戏创建成功', 'success');
+                loadOverview();
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        }
+
+        async function startGame() {
+            const confirmed = await showConfirm('开始游戏', '开始后所有鼠将开始计算生存时间，猫可以开始抓捕。确定继续？');
+            if (!confirmed) return;
+
+            try {
+                await apiPost('/api/staff/games/current/start');
+                // 初始化时间追踪
+                accumulatedSeconds = 0;
+                sessionStartTime = Date.now();
+                gameStatus = 'RUNNING';
+                showToast('游戏已开始！', 'success');
+                loadOverview();
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        }
+
+        async function pauseGame() {
+            const confirmed = await showConfirm('暂停游戏', '暂停后猫不能抓捕，鼠不会被计算生存时间。确定继续？');
+            if (!confirmed) return;
+
+            try {
+                await apiPost('/api/staff/games/current/pause');
+                // 冻结时间
+                onGamePaused();
+                showToast('游戏已暂停', 'success');
+                loadOverview();
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        }
+
+        async function resumeGame() {
+            const confirmed = await showConfirm('继续游戏', '继续后猫可以继续抓捕。确定继续？');
+            if (!confirmed) return;
+
+            try {
+                await apiPost('/api/staff/games/current/resume');
+                // 恢复计时
+                onGameResumed();
+                showToast('游戏已继续', 'success');
+                loadOverview();
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        }
+
+        function settleGame() {
+            showPasswordModal('结算游戏（计算生存积分）', async () => {
+                try {
+                    const result = await apiPost('/api/staff/games/current/settle');
+                    showToast(result.message || '结算完成', 'success');
+                    loadOverview();
+                } catch (err) {
+                    showToast(err.message, 'error');
+                }
+            });
+        }
+
+        function logout() {
+            clearToken();
+            window.location.href = '/staff/login';
+        }
+
+        function resetGame() {
+            showPasswordModal('重置游戏（删除所有数据）', async () => {
+                try {
+                    const result = await apiDelete('/api/staff/games/current');
+                    showToast(result.message || '游戏已重置', 'success');
+                    loadOverview();
+                } catch (err) {
+                    showToast(err.message, 'error');
+                }
+            });
+        }
+
+        // 初始化 - 加载一次数据，获取时间戳
+        loadOverview().then(() => {
+            // 数据加载完成后，每秒更新本地时间显示
+            timeTimer = setInterval(updateTimerDisplay, 1000);
+        });
+
+        // 不再定时请求后端，只在用户操作时刷新
+        // 用户可以通过点击「⟳ 同步」按钮手动同步时间
+    </script>
+</body>
+</html>

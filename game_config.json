@@ -1,0 +1,13 @@
+{
+    "capture_score": 5,
+    "survival_interval_seconds": 300,
+    "survival_interval_score": 5,
+    "max_revive_count": 3,
+    "revive_protect_seconds": 120,
+    "cat_ratio": 0.1,
+    "default_mini_game_rewards": {
+        "first": 15,
+        "second": 10,
+        "third": 5
+    }
+}

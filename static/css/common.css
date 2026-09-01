@@ -1,0 +1,486 @@
+/* ============ 全局样式 ============ */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    min-height: 100vh;
+    color: #333;
+}
+
+.container {
+    max-width: 480px;
+    margin: 0 auto;
+    padding: 16px;
+    min-height: 100vh;
+}
+
+.card {
+    background: rgba(255, 255, 255, 0.95);
+    border-radius: 16px;
+    padding: 20px;
+    margin-bottom: 16px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+}
+
+.card-title {
+    font-size: 18px;
+    font-weight: 700;
+    margin-bottom: 12px;
+    color: #333;
+}
+
+/* ============ 按钮 ============ */
+.btn {
+    display: inline-block;
+    padding: 12px 24px;
+    border: none;
+    border-radius: 12px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    text-align: center;
+    transition: all 0.2s;
+    text-decoration: none;
+}
+
+.btn:active {
+    transform: scale(0.96);
+}
+
+.btn-primary {
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    color: white;
+    width: 100%;
+}
+
+.btn-danger {
+    background: linear-gradient(135deg, #ff6b6b, #ee5a24);
+    color: white;
+}
+
+.btn-success {
+    background: linear-gradient(135deg, #2ed573, #17a558);
+    color: white;
+}
+
+.btn-warning {
+    background: linear-gradient(135deg, #ffa502, #e67e22);
+    color: white;
+}
+
+.btn-sm {
+    padding: 8px 16px;
+    font-size: 14px;
+    border-radius: 8px;
+}
+
+.btn-block {
+    display: block;
+    width: 100%;
+}
+
+/* ============ 表单 ============ */
+.form-group {
+    margin-bottom: 16px;
+}
+
+.form-group label {
+    display: block;
+    font-size: 14px;
+    font-weight: 600;
+    color: #555;
+    margin-bottom: 6px;
+}
+
+.form-group input,
+.form-group select {
+    width: 100%;
+    padding: 12px;
+    border: 2px solid #e0e0e0;
+    border-radius: 10px;
+    font-size: 16px;
+    transition: border-color 0.2s;
+}
+
+.form-group input:focus,
+.form-group select:focus {
+    outline: none;
+    border-color: #667eea;
+}
+
+/* ============ 状态标签 ============ */
+.badge {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.badge-alive {
+    background: #d4edda;
+    color: #155724;
+}
+
+.badge-dead {
+    background: #f8d7da;
+    color: #721c24;
+}
+
+.badge-waiting {
+    background: #fff3cd;
+    color: #856404;
+}
+
+.badge-protected {
+    background: #cce5ff;
+    color: #004085;
+}
+
+.badge-cat {
+    background: #ffeaa7;
+    color: #d63031;
+}
+
+.badge-mouse {
+    background: #dfe6e9;
+    color: #2d3436;
+}
+
+/* ============ 列表 ============ */
+.list-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 0;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.list-item:last-child {
+    border-bottom: none;
+}
+
+/* ============ 统计数字 ============ */
+.stat-number {
+    font-size: 32px;
+    font-weight: 800;
+    color: #667eea;
+}
+
+.stat-label {
+    font-size: 13px;
+    color: #888;
+    margin-top: 4px;
+}
+
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+}
+
+.stat-box {
+    text-align: center;
+    padding: 16px;
+    background: #f8f9fa;
+    border-radius: 12px;
+}
+
+/* ============ 排行榜 ============ */
+.rank-item {
+    display: flex;
+    align-items: center;
+    padding: 12px;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.rank-item:last-child {
+    border-bottom: none;
+}
+
+.rank-number {
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    font-weight: 800;
+    font-size: 16px;
+    margin-right: 12px;
+    flex-shrink: 0;
+}
+
+.rank-1 {
+    background: #ffd700;
+    color: #333;
+}
+
+.rank-2 {
+    background: #c0c0c0;
+    color: #333;
+}
+
+.rank-3 {
+    background: #cd7f32;
+    color: white;
+}
+
+.rank-other {
+    background: #f0f0f0;
+    color: #666;
+}
+
+.rank-info {
+    flex: 1;
+}
+
+.rank-name {
+    font-weight: 600;
+    font-size: 15px;
+}
+
+.rank-team {
+    font-size: 12px;
+    color: #888;
+    margin-top: 2px;
+}
+
+.rank-score {
+    font-weight: 700;
+    font-size: 18px;
+    color: #667eea;
+}
+
+/* ============ 导航栏 ============ */
+.nav-bar {
+    display: flex;
+    justify-content: space-around;
+    background: rgba(255, 255, 255, 0.95);
+    border-radius: 16px;
+    padding: 8px;
+    margin-bottom: 16px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+}
+
+.nav-item {
+    text-align: center;
+    padding: 8px 12px;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #666;
+    text-decoration: none;
+    transition: all 0.2s;
+}
+
+.nav-item.active {
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    color: white;
+}
+
+.nav-item:hover {
+    color: #667eea;
+}
+
+.nav-item.active:hover {
+    color: white;
+}
+
+/* ============ 页面标题 ============ */
+.page-header {
+    text-align: center;
+    color: white;
+    padding: 20px 0;
+}
+
+.page-header h1 {
+    font-size: 24px;
+    margin-bottom: 8px;
+}
+
+.page-header p {
+    font-size: 14px;
+    opacity: 0.8;
+}
+
+/* ============ 提示框 ============ */
+.alert {
+    padding: 12px 16px;
+    border-radius: 10px;
+    margin-bottom: 12px;
+    font-size: 14px;
+}
+
+.alert-success {
+    background: #d4edda;
+    color: #155724;
+    border: 1px solid #c3e6cb;
+}
+
+.alert-danger {
+    background: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f5c6cb;
+}
+
+.alert-warning {
+    background: #fff3cd;
+    color: #856404;
+    border: 1px solid #ffeeba;
+}
+
+.alert-info {
+    background: #cce5ff;
+    color: #004085;
+    border: 1px solid #b8daff;
+}
+
+/* ============ 加载动画 ============ */
+.loading {
+    text-align: center;
+    padding: 40px;
+    color: white;
+    font-size: 16px;
+}
+
+.loading::after {
+    content: "";
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    border: 3px solid rgba(255, 255, 255, 0.3);
+    border-top-color: white;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin-left: 8px;
+    vertical-align: middle;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* ============ 弹窗 ============ */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    padding: 20px;
+}
+
+.modal {
+    background: white;
+    border-radius: 16px;
+    padding: 24px;
+    max-width: 400px;
+    width: 100%;
+    max-height: 80vh;
+    overflow-y: auto;
+}
+
+.modal-title {
+    font-size: 18px;
+    font-weight: 700;
+    margin-bottom: 16px;
+}
+
+.modal-actions {
+    display: flex;
+    gap: 12px;
+    margin-top: 20px;
+}
+
+.modal-actions .btn {
+    flex: 1;
+}
+
+/* ============ 表格 ============ */
+.table-wrapper {
+    overflow-x: auto;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+}
+
+th, td {
+    padding: 10px 8px;
+    text-align: left;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+th {
+    font-weight: 600;
+    color: #555;
+    background: #f8f9fa;
+}
+
+/* ============ 标签切换 ============ */
+.tab-group {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+
+.tab-item {
+    padding: 8px 16px;
+    border-radius: 20px;
+    font-size: 14px;
+    font-weight: 600;
+    background: #f0f0f0;
+    color: #666;
+    cursor: pointer;
+    border: none;
+    transition: all 0.2s;
+}
+
+.tab-item.active {
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    color: white;
+}
+
+/* ============ 积分明细 ============ */
+.score-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 0;
+    border-bottom: 1px solid #f0f0f0;
+    font-size: 14px;
+}
+
+.score-item:last-child {
+    border-bottom: none;
+}
+
+.score-positive {
+    color: #2ed573;
+    font-weight: 700;
+}
+
+.score-negative {
+    color: #ff6b6b;
+    font-weight: 700;
+}
+
+/* ============ 响应式 ============ */
+@media (min-width: 768px) {
+    .container {
+        max-width: 600px;
+    }
+}

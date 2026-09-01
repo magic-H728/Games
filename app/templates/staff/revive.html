@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>复活管理 - 躲猫猫大挑战</title>
+    <link rel="stylesheet" href="/static/css/common.css">
+    <style>
+        .scan-mode-toggle {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+        .scan-mode-btn {
+            flex: 1;
+            padding: 10px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            background: white;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            text-align: center;
+            transition: all 0.2s;
+        }
+        .scan-mode-btn.active {
+            border-color: #667eea;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+        }
+        #qr-reader {
+            width: 100%;
+            max-width: 350px;
+            margin: 0 auto;
+        }
+        #qr-reader video {
+            width: 100%;
+            border-radius: 12px;
+        }
+        .dead-list {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .dead-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px;
+            border-bottom: 1px solid #f0f0f0;
+            cursor: pointer;
+        }
+        .dead-item:hover {
+            background: #f8f9fa;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="page-header">
+            <h1>💊 复活管理</h1>
+        </div>
+
+        <div class="card">
+            <div class="card-title">查找死亡老鼠</div>
+            <div class="scan-mode-toggle">
+                <button class="scan-mode-btn active" onclick="switchMode('camera')">📷 摄像头扫码</button>
+                <button class="scan-mode-btn" onclick="switchMode('manual')">⌨️ 手动输入</button>
+                <button class="scan-mode-btn" onclick="switchMode('list')">📋 死亡列表</button>
+            </div>
+
+            <div id="camera-mode">
+                <div id="qr-reader" style="margin-bottom: 12px;"></div>
+                <button class="btn btn-sm btn-danger" id="stop-camera-btn" onclick="stopCamera()" style="display: none; width: 100%;">停止扫码</button>
+            </div>
+
+            <div id="manual-mode" style="display: none;">
+                <div style="display: flex; gap: 8px;">
+                    <input type="text" id="qr-input" placeholder="输入身份码" style="flex: 1;">
+                    <button class="btn btn-sm btn-primary" onclick="lookupPlayer()">查询</button>
+                </div>
+            </div>
+
+            <div id="list-mode" style="display: none;">
+                <div class="dead-list" id="dead-list">
+                    <div style="text-align: center; color: #888; padding: 20px;">加载中...</div>
+                </div>
+            </div>
+        </div>
+
+        <div id="result"></div>
+
+        <div class="card">
+            <a href="/staff" class="btn btn-sm" style="background: #f0f0f0; color: #666; display: block; text-align: center; text-decoration: none;">← 返回控制台</a>
+        </div>
+    </div>
+
+    <script src="/static/js/common.js"></script>
+    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+    <script>
+        if (!getToken() || getRole() !== 'STAFF') {
+            window.location.href = '/staff/login';
+        }
+
+        let html5QrcodeScanner = null;
+        let isScanning = false;
+        let deadMice = [];
+
+        // Check for qr parameter from scan page
+        const urlParams = new URLSearchParams(window.location.search);
+        const qrParam = urlParams.get('qr');
+        if (qrParam) {
+            document.getElementById('qr-input').value = qrParam;
+            setTimeout(() => lookupPlayer(qrParam), 500);
+        }
+
+        function switchMode(mode) {
+            document.querySelectorAll('.scan-mode-btn').forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+
+            document.getElementById('camera-mode').style.display = mode === 'camera' ? 'block' : 'none';
+            document.getElementById('manual-mode').style.display = mode === 'manual' ? 'block' : 'none';
+            document.getElementById('list-mode').style.display = mode === 'list' ? 'block' : 'none';
+
+            if (mode === 'camera') {
+                startCamera();
+            } else {
+                stopCamera();
+            }
+
+            if (mode === 'list') {
+                loadDeadMice();
+            }
+        }
+
+        async function startCamera() {
+            if (isScanning) return;
+
+            const qrReader = document.getElementById('qr-reader');
+            if (!qrReader) return;
+
+            try {
+                html5QrcodeScanner = new Html5QrcodeScanner(
+                    "qr-reader",
+                    { fps: 10, qrbox: { width: 200, height: 200 } },
+                    false
+                );
+                html5QrcodeScanner.render(onScanSuccess, onScanError);
+                isScanning = true;
+                document.getElementById('stop-camera-btn').style.display = 'block';
+            } catch (err) {
+                console.error('Camera error:', err);
+                showToast('无法启动摄像头，请使用手动输入', 'warning');
+                switchMode('manual');
+            }
+        }
+
+        function stopCamera() {
+            if (html5QrcodeScanner) {
+                html5QrcodeScanner.clear();
+                html5QrcodeScanner = null;
+            }
+            isScanning = false;
+            const btn = document.getElementById('stop-camera-btn');
+            if (btn) btn.style.display = 'none';
+        }
+
+        function onScanSuccess(decodedText) {
+            stopCamera();
+            document.getElementById('qr-input').value = decodedText;
+            lookupPlayer(decodedText);
+        }
+
+        function onScanError() {}
+
+        async function loadDeadMice() {
+            try {
+                const data = await apiGet('/api/staff/players?role=MOUSE&status=DEAD');
+                deadMice = data || [];
+                renderDeadList();
+            } catch (err) {
+                document.getElementById('dead-list').innerHTML =
+                    `<div style="text-align: center; color: #ff6b6b; padding: 20px;">加载失败</div>`;
+            }
+        }
+
+        function renderDeadList() {
+            if (deadMice.length === 0) {
+                document.getElementById('dead-list').innerHTML =
+                    `<div style="text-align: center; color: #2ed573; padding: 20px;">🎉 没有阵亡的老鼠</div>`;
+                return;
+            }
+
+            document.getElementById('dead-list').innerHTML = deadMice.map(p => `
+                <div class="dead-item" onclick="lookupPlayer('${p.qr_token}')">
+                    <div>
+                        <div style="font-weight: 600;">${p.name}</div>
+                        <div style="font-size: 12px; color: #888;">${p.student_id} | ${p.qr_token}</div>
+                    </div>
+                    <button class="btn btn-sm btn-success">复活</button>
+                </div>
+            `).join('');
+        }
+
+        document.getElementById('qr-input').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') lookupPlayer();
+        });
+
+        async function lookupPlayer(qrToken) {
+            qrToken = qrToken || document.getElementById('qr-input').value.trim();
+            if (!qrToken) {
+                showToast('请输入或扫描身份码', 'warning');
+                return;
+            }
+
+            try {
+                const players = await apiGet(`/api/staff/players?search=${encodeURIComponent(qrToken)}`);
+                if (!players || players.length === 0) {
+                    document.getElementById('result').innerHTML =
+                        `<div class="card"><div style="text-align: center; color: #888;">未找到该玩家</div></div>`;
+                    return;
+                }
+
+                const player = players.find(p => p.qr_token === qrToken) || players[0];
+                showPlayerResult(player);
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        }
+
+        function showPlayerResult(p) {
+            if (p.role !== 'MOUSE') {
+                document.getElementById('result').innerHTML =
+                    `<div class="card"><div style="text-align: center; color: #888;">该玩家不是老鼠，无法复活</div></div>`;
+                return;
+            }
+
+            if (p.status !== 'DEAD') {
+                document.getElementById('result').innerHTML =
+                    `<div class="card"><div style="text-align: center; color: #2ed573;">该老鼠目前存活，无需复活</div></div>`;
+                return;
+            }
+
+            document.getElementById('result').innerHTML = `
+                <div class="card">
+                    <div style="text-align: center; margin-bottom: 16px;">
+                        <div style="font-size: 50px; margin-bottom: 8px;">🐭</div>
+                        <div style="font-size: 20px; font-weight: 700;">${p.name}</div>
+                        <div style="font-size: 13px; color: #888;">${p.student_id}</div>
+                        <div style="margin-top: 8px;">${getStatusBadge(p.status)}</div>
+                        <div style="font-size: 13px; color: #888; margin-top: 4px;">复活次数: ${p.revive_count}</div>
+                    </div>
+
+                    <div class="form-group">
+                        <label>选择复活小游戏</label>
+                        <select id="mini-game-select">
+                            <option value="">加载中...</option>
+                        </select>
+                    </div>
+
+                    <button class="btn btn-success btn-block" onclick="startRevive('${p.qr_token}')">💊 发起复活挑战</button>
+                </div>
+            `;
+
+            loadMiniGames();
+        }
+
+        let miniGames = [];
+
+        async function loadMiniGames() {
+            try {
+                miniGames = await apiGet('/api/mini-games/');
+                const select = document.getElementById('mini-game-select');
+                if (!select) return;
+
+                select.innerHTML = miniGames.map(mg =>
+                    `<option value="${mg.id}">${mg.name} ${mg.is_scored ? '(计分)' : '(不计分)'}</option>`
+                ).join('');
+
+                if (miniGames.length === 0) {
+                    select.innerHTML = '<option value="">暂无小游戏，请先创建</option>';
+                }
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        async function startRevive(qrToken) {
+            const miniGameId = document.getElementById('mini-game-select')?.value;
+
+            try {
+                const result = await apiPost('/api/revives/start', {
+                    qr_token: qrToken,
+                    mini_game_id: miniGameId ? parseInt(miniGameId) : null
+                });
+
+                if (result) {
+                    const isScored = result.mini_game.is_scored;
+                    const passScore = result.mini_game.pass_score;
+
+                    let formHtml = '';
+
+                    if (isScored) {
+                        // 积分游戏：输入分数，系统判断
+                        formHtml = `
+                            <div class="form-group">
+                                <label>输入游戏成绩（需≥${passScore}分才能复活）</label>
+                                <input type="number" id="score-input" placeholder="输入分数" min="0" max="100">
+                            </div>
+                            <button class="btn btn-primary btn-block" onclick="submitScoredRevive(${result.attempt_id}, ${passScore})">📤 提交成绩</button>
+                        `;
+                    } else {
+                        // 非积分游戏：只有通过/不通过
+                        formHtml = `
+                            <div style="display: flex; gap: 12px;">
+                                <button class="btn btn-sm" style="flex:1; background: #ff6b6b; color: white;" onclick="completeRevive(${result.attempt_id}, 0, false)">❌ 未通过</button>
+                                <button class="btn btn-sm btn-success" style="flex:1;" onclick="completeRevive(${result.attempt_id}, 0, true)">✅ 通过</button>
+                            </div>
+                        `;
+                    }
+
+                    document.getElementById('result').innerHTML = `
+                        <div class="card">
+                            <div style="text-align: center; margin-bottom: 16px;">
+                                <div style="font-size: 50px; margin-bottom: 8px;">🎮</div>
+                                <div style="font-size: 18px; font-weight: 700;">复活挑战已发起</div>
+                                <div style="font-size: 14px; color: #888; margin-top: 4px;">
+                                    玩家: ${result.player_name}<br>
+                                    小游戏: ${result.mini_game.name}<br>
+                                    ${isScored ? `通过分数: ≥${passScore}` : '不计分游戏'}
+                                </div>
+                            </div>
+                            ${formHtml}
+                        </div>
+                    `;
+                }
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        }
+
+        // 积分游戏：提交成绩，系统判断
+        async function submitScoredRevive(attemptId, passScore) {
+            const score = parseInt(document.getElementById('score-input')?.value || '0');
+            const passed = score >= passScore;
+            await completeRevive(attemptId, score, passed);
+        }
+
+        async function completeRevive(attemptId, score, passed) {
+            try {
+                const result = await apiPost(`/api/revives/${attemptId}/complete`, {
+                    attempt_id: attemptId,
+                    score: score,
+                    passed: passed
+                });
+
+                if (result) {
+                    showToast(result.message, result.success ? 'success' : 'error');
+                    if (result.success) {
+                        document.getElementById('result').innerHTML = `
+                            <div class="card">
+                                <div style="text-align: center; padding: 20px;">
+                                    <div style="font-size: 60px; margin-bottom: 12px;">🎉</div>
+                                    <div style="font-size: 18px; font-weight: 700; color: #2ed573;">复活成功！</div>
+                                    <div style="font-size: 14px; color: #888; margin-top: 8px;">${result.message}</div>
+                                </div>
+                            </div>
+                        `;
+                        // 刷新死亡列表
+                        if (document.getElementById('list-mode').style.display !== 'none') {
+                            loadDeadMice();
+                        }
+                    }
+                }
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        }
+
+        // Auto-start camera
+        startCamera();
+    </script>
+</body>
+</html>

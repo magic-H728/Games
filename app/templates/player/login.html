@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>玩家登录 - 躲猫猫大挑战</title>
+    <link rel="stylesheet" href="/static/css/common.css">
+</head>
+<body>
+    <div class="container" style="display: flex; flex-direction: column; justify-content: center; min-height: 100vh;">
+        <div class="card">
+            <div style="text-align: center; margin-bottom: 24px;">
+                <div style="font-size: 50px; margin-bottom: 8px;">🐱🐭</div>
+                <h1 style="font-size: 24px; font-weight: 800; color: #333;">躲猫猫大挑战</h1>
+                <p style="font-size: 14px; color: #888; margin-top: 4px;">请输入你的信息进入游戏</p>
+            </div>
+
+            <div id="alert-box"></div>
+
+            <div class="form-group">
+                <label>姓名</label>
+                <input type="text" id="name" placeholder="请输入你的姓名" autocomplete="name">
+            </div>
+
+            <div class="form-group">
+                <label>学号</label>
+                <input type="text" id="student-id" placeholder="请输入你的学号" autocomplete="off">
+            </div>
+
+            <button class="btn btn-primary" id="login-btn" onclick="doLogin()">进入游戏</button>
+
+            <p style="text-align: center; margin-top: 16px; font-size: 13px; color: #aaa;">
+                <a href="/staff/login" style="color: #aaa; text-decoration: none;">工作人员登录</a>
+            </p>
+        </div>
+    </div>
+
+    <script src="/static/js/common.js"></script>
+    <script>
+        // 清除之前的工作人staff token，避免冲突
+        if (getRole() === 'STAFF') {
+            clearToken();
+        }
+        // Check if already logged in
+        if (getToken() && getRole() === 'PLAYER') {
+            window.location.href = '/player';
+        }
+
+        async function doLogin() {
+            const name = document.getElementById('name').value.trim();
+            const studentId = document.getElementById('student-id').value.trim();
+
+            if (!name || !studentId) {
+                showAlert('请填写姓名和学号');
+                return;
+            }
+
+            const btn = document.getElementById('login-btn');
+            btn.disabled = true;
+            btn.textContent = '登录中...';
+            clearAlert();
+
+            try {
+                const response = await fetch('/api/auth/player/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, student_id: studentId })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    showAlert(data.detail || '登录失败');
+                    return;
+                }
+
+                // 登录成功
+                setToken(data.access_token, data.role, data.player_id, data.game_player_id);
+                window.location.href = '/player';
+            } catch (err) {
+                showAlert('网络错误，请重试');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '进入游戏';
+            }
+        }
+
+        function showAlert(msg) {
+            document.getElementById('alert-box').innerHTML =
+                `<div class="alert alert-danger">${msg}</div>`;
+        }
+
+        function clearAlert() {
+            document.getElementById('alert-box').innerHTML = '';
+        }
+
+        // Enter key
+        document.getElementById('student-id').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') doLogin();
+        });
+    </script>
+</body>
+</html>
